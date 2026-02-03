@@ -12,8 +12,8 @@ const dbx = new Dropbox({ accessToken: DROPBOX_ACCESS_TOKEN, fetch });
 
 // Map report types → Dropbox folders
 const folders = {
-  property: "/Manav Jain/Property Reports",
-  suburb: "/Manav Jain/Suburb Reports"
+  property: "/Property Reports",
+  suburb: "/Suburb Reports"
 };
 
 // Homepage
