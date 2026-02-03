@@ -27,24 +27,13 @@ app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
 });
 
-// Helper: launch browser, install if missing
-async function getBrowser() {
-  try {
-    return await chromium.launch({ args: ["--no-sandbox"] });
-  } catch (err) {
-    console.log("Chromium not found. Installing...");
-    await install("chromium");
-    return await chromium.launch({ args: ["--no-sandbox"] });
-  }
-}
-
 // Convert HTML → PDF → Dropbox
 app.post("/convert", async (req, res) => {
   try {
     const html = req.body.html;
     if (!html) return res.status(400).send("No HTML provided");
 
-    const browser = await getBrowser();
+    const browser = await chromium.launch({ args: ["--no-sandbox"] });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle", timeout: 10000 });
 
