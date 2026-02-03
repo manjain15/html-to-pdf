@@ -8,12 +8,12 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.use(express.json({ limit: "15mb" }));
 
 // Dropbox setup
-const DROPBOX_ACCESS_TOKEN = process.env.DROPBOX_ACCESS_TOKEN;
-if (!DROPBOX_ACCESS_TOKEN) {
-  console.error("ERROR: DROPBOX_ACCESS_TOKEN not set in environment variables!");
-  process.exit(1);
-}
-const dbx = new Dropbox({ accessToken: DROPBOX_ACCESS_TOKEN, fetch });
+const dbx = new Dropbox({
+  clientId: process.env.DROPBOX_APP_KEY,
+  clientSecret: process.env.DROPBOX_APP_SECRET,
+  refreshToken: process.env.DROPBOX_REFRESH_TOKEN,
+  fetch
+});
 
 // Map report types → Dropbox folders
 const folders = {
