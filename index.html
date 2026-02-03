@@ -8,15 +8,25 @@
       font-family: Arial, sans-serif;
       padding: 20px;
     }
-    textarea {
+    textarea, input, select {
       width: 100%;
-      height: 400px;
       font-family: monospace;
+      margin-top: 5px;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+    textarea {
+      height: 300px;
     }
     button {
       margin-top: 10px;
       padding: 10px 16px;
       font-size: 16px;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+      display: block;
     }
   </style>
 </head>
@@ -25,9 +35,20 @@
   <h2>HTML → PDF Converter (Internal)</h2>
 
   <form action="/convert" method="POST">
-    <textarea name="html" placeholder="Paste full HTML document here..."></textarea>
-    <br>
-    <button type="submit">Generate PDF</button>
+    <label for="reportType">Report Type:</label>
+    <select name="reportType" id="reportType" required>
+      <option value="property">Property Report</option>
+      <option value="suburb">Suburb Report</option>
+      <option value="other">Other</option>
+    </select>
+
+    <label for="reportName">Report Name (e.g., property address or suburb):</label>
+    <input type="text" name="reportName" id="reportName" placeholder="Enter report name" required>
+
+    <label for="html">HTML Content:</label>
+    <textarea name="html" id="html" placeholder="Paste full HTML document here..."></textarea>
+
+    <button type="submit">Generate PDF & Upload to Dropbox</button>
   </form>
 
 </body>
