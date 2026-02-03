@@ -1,19 +1,25 @@
 const express = require("express");
-const { chromium } = require("playwright");
+const { chromium, install } = require("playwright");
 const { Dropbox } = require("dropbox");
 const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+app.use(express.json({ limit: "15mb" }));
 
 // Dropbox setup
 const DROPBOX_ACCESS_TOKEN = process.env.DROPBOX_ACCESS_TOKEN;
+if (!DROPBOX_ACCESS_TOKEN) {
+  console.error("ERROR: DROPBOX_ACCESS_TOKEN not set in environment variables!");
+  process.exit(1);
+}
 const dbx = new Dropbox({ accessToken: DROPBOX_ACCESS_TOKEN, fetch });
 
 // Map report types → Dropbox folders
 const folders = {
   property: "/Property Reports",
-  suburb: "/Suburb Reports"
+  suburb: "/Suburb Reports",
+  other: "/Other Reports"
 };
 
 // Homepage
@@ -21,73 +27,86 @@ app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
 });
 
+// Helper: launch browser, install if missing
+async function getBrowser() {
+  try {
+    return await chromium.launch({ args: ["--no-sandbox"] });
+  } catch (err) {
+    console.log("Chromium not found. Installing...");
+    await install("chromium");
+    return await chromium.launch({ args: ["--no-sandbox"] });
+  }
+}
+
 // Convert HTML → PDF → Dropbox
 app.post("/convert", async (req, res) => {
-  const html = req.body.html;
-  if (!html) return res.status(400).send("No HTML provided");
+  try {
+    const html = req.body.html;
+    if (!html) return res.status(400).send("No HTML provided");
 
-  const browser = await chromium.launch({ args: ["--no-sandbox"] });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: "networkidle", timeout: 10000 });
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle", timeout: 10000 });
 
-  const pdf = await page.pdf({
-    format: "A4",
-    printBackground: true,
-    margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
-    displayHeaderFooter: true,
-    footerTemplate: `<div style="font-size:10px; width:100%; text-align:center;">
-                       Page <span class="pageNumber"></span> of <span class="totalPages"></span>
-                     </div>`
-  });
-
-  // Use form fields if provided
-  let reportType = req.body.reportType || "";
-  let reportName = req.body.reportName || "";
-
-  // If fields not provided, fallback to HTML parsing
-  if (!reportType || !reportName) {
-    const result = await page.evaluate(() => {
-      let type = "other";
-      let name = "report";
-
-      const metaType = document.querySelector('meta[name="report-type"]');
-      if (metaType) type = metaType.getAttribute("content");
-
-      const metaName = document.querySelector('meta[name="report-name"]');
-      if (metaName) name = metaName.getAttribute("content");
-
-      const h1 = document.querySelector("h1");
-      if (h1) {
-        const h1Text = h1.innerText.toLowerCase();
-        if (h1Text.includes("property")) type = "property";
-        else if (h1Text.includes("suburb")) type = "suburb";
-        name = h1.innerText.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
-      }
-
-      return { reportType: type, reportName: name };
+    const pdf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
+      displayHeaderFooter: true,
+      footerTemplate: `<div style="font-size:10px; width:100%; text-align:center;">
+                         Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+                       </div>`
     });
 
-    reportType = result.reportType;
-    reportName = result.reportName;
-  }
+    // Determine report type and name
+    let reportType = req.body.reportType || "";
+    let reportName = req.body.reportName || "";
 
-  // Sanitize filename
-  reportName = reportName.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
-  reportType = reportType.toLowerCase();
-  const folderPath = folders[reportType] || folders["other"];
-  const filename = `${folderPath}/${reportName}-${Date.now()}.pdf`;
+    if (!reportType || !reportName) {
+      const result = await page.evaluate(() => {
+        let type = "other";
+        let name = "report";
 
-  await browser.close();
+        const metaType = document.querySelector('meta[name="report-type"]');
+        if (metaType) type = metaType.getAttribute("content");
 
-  try {
+        const metaName = document.querySelector('meta[name="report-name"]');
+        if (metaName) name = metaName.getAttribute("content");
+
+        const h1 = document.querySelector("h1");
+        if (h1) {
+          const h1Text = h1.innerText.toLowerCase();
+          if (h1Text.includes("property")) type = "property";
+          else if (h1Text.includes("suburb")) type = "suburb";
+          name = h1.innerText.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+        }
+
+        return { reportType: type, reportName: name };
+      });
+
+      reportType = result.reportType;
+      reportName = result.reportName;
+    }
+
+    // Sanitize filename
+    reportName = reportName.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+    reportType = reportType.toLowerCase();
+    const folderPath = folders[reportType] || folders["other"];
+    const filename = `${folderPath}/${reportName}-${Date.now()}.pdf`;
+
+    await browser.close();
+
+    // Upload to Dropbox
     await dbx.filesUpload({ path: filename, contents: pdf });
+    console.log(`✅ PDF uploaded to Dropbox at: ${filename}`);
     res.send(`✅ PDF uploaded to Dropbox at: ${filename}`);
+
   } catch (err) {
-    console.error(err);
-    res.status(500).send("❌ Failed to upload PDF to Dropbox");
+    console.error("❌ Error in /convert:", err);
+    res.status(500).send("❌ Internal Server Error - check logs");
   }
 });
 
-app.listen(3000, () => {
-  console.log("HTML → PDF → Dropbox converter running on http://localhost:3000");
+app.listen(process.env.PORT || 3000, () => {
+  console.log("HTML → PDF → Dropbox converter running...");
 });
