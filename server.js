@@ -81,7 +81,7 @@ app.post("/convert", async (req, res) => {
     reportName = reportName.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
     reportType = reportType.toLowerCase();
     const folderPath = folders[reportType] || folders["other"];
-    const filename = `${folderPath}/${reportName}-${Date.now()}.pdf`;
+    const filename = `${folderPath}/${reportName}.pdf`;
 
     await browser.close();
 
