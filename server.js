@@ -60,7 +60,7 @@ async function dropboxUpload(filePath, contents) {
   return await resp.json();
 }
 
-const folders = { property: "/Property Reports", suburb: "/Suburb Reports", other: "/Other Reports" };
+const folders = { property: "/Properties Reports/Property Reports", suburb: "/Properties Reports/Suburb Property Report", other: "/Other Reports" };
 
 // ─── LOGO ───
 let LOGO_BASE64 = "";
