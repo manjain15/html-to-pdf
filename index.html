@@ -2,54 +2,218 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Internal HTML to PDF</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PropWealth Report Generator</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-    }
-    textarea, input, select {
-      width: 100%;
-      font-family: monospace;
-      margin-top: 5px;
-      padding: 5px;
-      box-sizing: border-box;
-    }
-    textarea {
-      height: 300px;
-    }
-    button {
-      margin-top: 10px;
-      padding: 10px 16px;
-      font-size: 16px;
-    }
-    label {
-      font-weight: bold;
-      margin-top: 10px;
-      display: block;
-    }
+    *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f5f5f5;color:#222}
+    .header{background:#fff;border-bottom:3px solid #d63384;padding:15px 30px}.header h1{font-size:20px;color:#333}
+    .tabs{display:flex;background:#fff;border-bottom:1px solid #ddd;padding:0 30px}
+    .tab{padding:12px 24px;cursor:pointer;border-bottom:3px solid transparent;font-weight:600;color:#666;transition:all .2s}.tab:hover{color:#d63384}.tab.active{color:#d63384;border-bottom-color:#d63384}
+    .container{max-width:900px;margin:20px auto;padding:0 20px}.panel{display:none}.panel.active{display:block}
+    .card{background:#fff;border-radius:8px;padding:25px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+    .card h2{font-size:16px;color:#d63384;margin-bottom:15px;padding-bottom:8px;border-bottom:1px solid #eee}
+    textarea{width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:'Consolas','Courier New',monospace;resize:vertical;line-height:1.4}
+    textarea:focus{outline:none;border-color:#d63384;box-shadow:0 0 0 2px rgba(214,51,132,.15)}
+    .json-input{min-height:500px}
+    .btn{display:inline-block;border:none;padding:10px 22px;font-size:14px;font-weight:600;border-radius:6px;cursor:pointer;transition:background .2s;margin-right:8px;margin-top:12px}
+    .btn-primary{background:#d63384;color:#fff}.btn-primary:hover{background:#b52570}
+    .btn-secondary{background:#6c757d;color:#fff}.btn-secondary:hover{background:#555}
+    .status{margin-top:15px;padding:12px;border-radius:6px;font-weight:600;display:none}
+    .status.success{display:block;background:#d4edda;color:#155724}.status.error{display:block;background:#f8d7da;color:#721c24}.status.loading{display:block;background:#fff3cd;color:#856404}
+    .help{font-size:12px;color:#888;margin-top:8px;line-height:1.5}
+    details{margin-top:12px}summary{cursor:pointer;color:#d63384;font-weight:600;font-size:13px}
+    .example-json{max-height:400px;min-height:200px;font-size:11px;margin-top:8px;background:#f9f9f9}
+    select,input[type=text]{padding:8px;border:1px solid #ccc;border-radius:4px;font-size:14px;margin-bottom:12px}
+    label{font-weight:600;font-size:13px;display:block;margin-bottom:4px}
   </style>
 </head>
 <body>
+<div class="header"><h1>PropWealth Report Generator</h1></div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('property')">Property Report</div>
+  <div class="tab" onclick="switchTab('suburb')">Suburb Report</div>
+  <div class="tab" onclick="switchTab('legacy')">Raw HTML (Legacy)</div>
+</div>
+<div class="container">
 
-  <h2>HTML → PDF Converter (Internal)</h2>
+<!-- PROPERTY -->
+<div id="panel-property" class="panel active">
+  <div class="card">
+    <h2>Property Report — Paste JSON</h2>
+    <p class="help">Paste the property report JSON and click Generate. The server auto-calculates all cashflow values from just a few key inputs. See the example for the expected format.</p>
+    <textarea id="json-property" class="json-input" placeholder="Paste property report JSON here..."></textarea>
+    <div>
+      <button class="btn btn-primary" onclick="submitReport('property')">Generate Property Report &amp; Upload</button>
+      <button class="btn btn-secondary" onclick="loadExample('property')">Load Example</button>
+    </div>
+    <div id="status-property" class="status"></div>
+    <details><summary>View Example JSON (with auto-calculated cashflow)</summary>
+      <textarea class="example-json" readonly id="example-property"></textarea>
+    </details>
+  </div>
+</div>
 
-  <form action="/convert" method="POST">
-    <label for="reportType">Report Type:</label>
-    <select name="reportType" id="reportType" required>
-      <option value="property">Property Report</option>
-      <option value="suburb">Suburb Report</option>
-      <option value="other">Other</option>
-    </select>
+<!-- SUBURB -->
+<div id="panel-suburb" class="panel">
+  <div class="card">
+    <h2>Suburb Report — Paste JSON</h2>
+    <p class="help">Paste suburb report JSON (pages 1-2 only: city overview + suburb section).</p>
+    <textarea id="json-suburb" class="json-input" placeholder="Paste suburb report JSON here..."></textarea>
+    <div>
+      <button class="btn btn-primary" onclick="submitReport('suburb')">Generate Suburb Report &amp; Upload</button>
+      <button class="btn btn-secondary" onclick="loadExample('suburb')">Load Example</button>
+    </div>
+    <div id="status-suburb" class="status"></div>
+    <details><summary>View Example JSON</summary>
+      <textarea class="example-json" readonly id="example-suburb"></textarea>
+    </details>
+  </div>
+</div>
 
-    <label for="reportName">Report Name (e.g., property address or suburb):</label>
-    <input type="text" name="reportName" id="reportName" placeholder="Enter report name" required>
+<!-- LEGACY -->
+<div id="panel-legacy" class="panel">
+  <div class="card">
+    <h2>Raw HTML → PDF (Legacy)</h2>
+    <form action="/convert" method="POST">
+      <label>Report Type</label>
+      <select name="reportType" style="width:100%"><option value="property">Property</option><option value="suburb">Suburb</option><option value="other">Other</option></select>
+      <label>Report Name</label>
+      <input type="text" name="reportName" style="width:100%" required>
+      <label>HTML</label>
+      <textarea name="html" style="min-height:300px;font-family:monospace"></textarea>
+      <button type="submit" class="btn btn-primary">Generate &amp; Upload</button>
+    </form>
+  </div>
+</div>
 
-    <label for="html">HTML Content:</label>
-    <textarea name="html" id="html" placeholder="Paste full HTML document here..."></textarea>
+</div>
+<script>
+const EXAMPLES={
+property:{
+  reportName:"11_Parsons_Circuit_Kellyville",
+  cityName:"Sydney",
+  stateName:"New South Wales",
+  cityHighlights:["Sydney Opera House","Sydney Harbour Bridge","Royal Botanic Gardens","Bondi Beach","Taronga Zoo"],
+  cityParagraphs:[
+    "Sydney, the capital of New South Wales, is the largest and most populous city in Australia. Situated on one of the world's most stunning natural harbours, Sydney serves as a global gateway and a major commercial, cultural, and financial centre for the Asia-Pacific region.",
+    "Sydney was founded in 1788 as a British penal colony and has since grown into one of the most vibrant and multicultural cities in the world.",
+    "Sydney is located on the south-east coast of Australia. The city enjoys a temperate climate with warm summers and mild winters.",
+    "Sydney has a vibrant cultural scene, with world-class dining, entertainment, and the arts.",
+    "Sydney's economy is the largest in Australia, with strong sectors in finance, professional services, technology, healthcare, education, and tourism."
+  ],
+  futureProspectsParagraphs:[
+    "Sydney continues to benefit from significant infrastructure investment, including the Sydney Metro West rail line and the Western Sydney International Airport.",
+    "Urban renewal projects are expected to deliver new housing, commercial precincts, and community facilities."
+  ],
+  suburbName:"Kellyville",
+  suburbParagraphs:[
+    "The size of Kellyville is approximately 9.4 square kilometres. It has 40 parks covering nearly 8.3% of total area. The population of Kellyville in 2016 was 27971 people. By 2021 the population was 27011 showing a population decline of 3.4%. The predominant age group is 40-49 years. Households are primarily couples with children repaying over $4000 per month on mortgage repayments."
+  ],
+  insights:{
+    percentageRenters:"20%",
+    daysOnMarket:"35.5 days",
+    vacancyRate:"1.32%",
+    vendorDiscounting:"-4.8%",
+    stockOnMarket:"0.95%"
+  },
+  propertyAddress:"11 Parsons Circuit, Kellyville, NSW 2155",
+  listingType:"OFF MARKET",
+  price:"$4,050,000",
+  occupancyStatus:"Owner-Occupied",
+  currentRent:"$1,100 - $1,400",
+  state:"NSW",
+  yearBuilt:"2020",
+  bedrooms:"4",
+  bathrooms:"3",
+  garages:"3",
+  buildingSize:"405 sqm",
+  landSize:"831 sqm",
+  propertyDescription:"Built by the award-winning team at Construction by Design, this residence is a statement of elegance and sophistication with bespoke craftsmanship and premium finishes throughout.",
+  propertyFeatures:[
+    "Stunning street appeal with waterfall feature",
+    "Covered front porch leading into foyer entrance",
+    "Formal front lounge room with electric blinds",
+    "Open plan family living and dining with built-in fireplace",
+    "State of the art kitchen with Omega black stone finishes",
+    "Grand master bedroom with walk-in robe and full bathroom",
+    "Three additional bedrooms with walk-in robes",
+    "Ducted air-conditioning and hydronic heating throughout",
+    "Covered alfresco with built-in outdoor BBQ kitchen",
+    "Solar-heated concrete in-ground swimming pool",
+    "Fully tiled triple garage with bifold doors"
+  ],
+  locationDescription:"Centrally located bordering Bella Vista Waters and Norwest, close to parks, shops, cafes, schools, Metro stations and arterial roads.",
+  amenities:[
+    "Bella Vista Public School – 0.65 km",
+    "Crestwood High School – 3.03 km",
+    "Kellyville Metro Station – 1.5 km",
+    "Bella Vista Metro Station – 2.0 km",
+    "Norwest Business Park – 2.5 km",
+    "Kellyville Village Shopping Centre – 2.0 km",
+    "Castle Towers Shopping Centre – 5.0 km",
+    "Norwest Private Hospital – 3.0 km",
+    "Bernie Mullane Sports Complex – 1.5 km"
+  ],
+  comparableSales:[
+    {address:"15 Kingsbury Cct, Kellyville NSW 2155",beds:"5",baths:"3",garages:"2",landSize:"750 sqm",soldPrice:"$3,850,000",soldDate:"December 25"},
+    {address:"8 Greenfield Cres, Kellyville NSW 2155",beds:"4",baths:"3",garages:"2",landSize:"800 sqm",soldPrice:"$3,920,000",soldDate:"November 25"},
+    {address:"22 Fairway Dr, Kellyville NSW 2155",beds:"5",baths:"4",garages:"3",landSize:"900 sqm",soldPrice:"$4,200,000",soldDate:"October 25"}
+  ],
+  cashflowInputs:{
+    purchasePrice:4050000,
+    lowerRentWeekly:1100,
+    higherRentWeekly:1400,
+    stampDuty:209697,
+    mortgageFee:600
+  }
+},
 
-    <button type="submit">Generate PDF & Upload to Dropbox</button>
-  </form>
+suburb:{
+  reportName:"Lavington_Suburb_Report",
+  cityName:"Albury",
+  stateName:"New South Wales",
+  cityHighlights:["Murray River","Albury Botanic Gardens","Hume Dam & Lake Hume","Albury Entertainment Centre","Monument Hill War Memorial"],
+  cityParagraphs:[
+    "Albury, situated on the northern banks of the Murray River, is one of the largest regional centres in New South Wales.",
+    "Founded in 1839, Albury has a rich history tied to its position along the Murray River as a major transport and trading route.",
+    "Albury is located on the border of New South Wales and Victoria, approximately 550 km southwest of Sydney.",
+    "Albury has a vibrant cultural scene. The Murray Art Museum Albury (MAMA) is a central cultural institution.",
+    "Albury's economy is diverse, with strong sectors in retail, healthcare, education, logistics, and manufacturing."
+  ],
+  futureProspectsParagraphs:[
+    "Albury is expected to continue expanding as a key regional growth centre.",
+    "With its strong economic base, strategic location, and lifestyle appeal, Albury is positioned for long-term growth."
+  ],
+  suburbName:"Lavington",
+  suburbParagraphs:[
+    "The size of Lavington is approximately 14.8 square kilometres. It has 11 parks covering nearly 3.2% of total area. The population in 2016 was 12472. By 2021 it was 13073 showing growth of 4.8%. The predominant age group is 20-29 years."
+  ],
+  insights:{
+    percentageRenters:"41.00% (Ideally under 40%)",
+    daysOnMarket:"24 days (Recommended under 60 days)",
+    vacancyRate:"0.78% (ideal under 1.5%)",
+    vendorDiscounting:"-1.80% (ideal under 5% plus)",
+    stockOnMarket:"0.63% (Ideal under 2%)"
+  }
+}
+};
 
+function switchTab(n){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelector(`[onclick="switchTab('${n}')"]`).classList.add('active');document.getElementById(`panel-${n}`).classList.add('active')}
+function loadExample(t){document.getElementById(`json-${t}`).value=JSON.stringify(EXAMPLES[t],null,2)}
+function showStatus(id,c,m){const e=document.getElementById(id);e.className=`status ${c}`;e.textContent=m}
+window.addEventListener('DOMContentLoaded',()=>{document.getElementById('example-property').value=JSON.stringify(EXAMPLES.property,null,2);document.getElementById('example-suburb').value=JSON.stringify(EXAMPLES.suburb,null,2)});
+
+async function submitReport(type){
+  const ta=document.getElementById(`json-${type}`),sid=`status-${type}`,raw=ta.value.trim();
+  if(!raw){showStatus(sid,'error','Paste JSON first.');return}
+  let data;try{data=JSON.parse(raw)}catch(e){showStatus(sid,'error','Invalid JSON: '+e.message);return}
+  const endpoint=type==='property'?'/generate-property':'/generate-suburb';
+  showStatus(sid,'loading','Generating report & uploading to Dropbox...');
+  try{
+    const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const j=await r.json();showStatus(sid,j.success?'success':'error',j.message||j.error)
+  }catch(err){showStatus(sid,'error','Failed: '+err.message)}
+}
+</script>
 </body>
 </html>
