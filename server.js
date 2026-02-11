@@ -895,10 +895,10 @@ function mapScraperToReport(input, suburbData, propertyData, comparablesData, pl
     return text.split(/\n\s*\n/).map(s => s.trim()).filter(s => s);
   }
 
-  const cityParagraphs = input.cityParagraphs || textToParagraphs(sub.suburb_overview);
+  const cityParagraphs = input.cityParagraphs || textToParagraphs(sub.city_overview) || textToParagraphs(sub.suburb_overview);
   const futureProspectsParagraphs = input.futureProspectsParagraphs || textToParagraphs(sub.future_prospects);
 
-  // Suburb demographics paragraph — from Claude AI or manual input
+  // Suburb demographics paragraph — just the census-style stats paragraph for page 2
   let suburbParagraphs = input.suburbParagraphs || [];
   if (!suburbParagraphs.length && sub.suburb_demographics) {
     suburbParagraphs = textToParagraphs(sub.suburb_demographics);
@@ -1454,7 +1454,7 @@ app.post("/auto-suburb", async (req, res) => {
       cityName: input.cityName || sub.city_name || suburb,
       stateName: input.stateName || STATE_NAMES[state] || state,
       cityHighlights: highlights,
-      cityParagraphs: input.cityParagraphs || textToParagraphs(sub.suburb_overview),
+      cityParagraphs: input.cityParagraphs || textToParagraphs(sub.city_overview) || textToParagraphs(sub.suburb_overview),
       futureProspectsParagraphs: input.futureProspectsParagraphs || textToParagraphs(sub.future_prospects),
       suburbName: suburb,
       suburbParagraphs: input.suburbParagraphs || textToParagraphs(sub.suburb_demographics),
