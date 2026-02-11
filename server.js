@@ -585,13 +585,22 @@ const sharedStyles = `
   .cf-title{font-size:14pt;font-weight:bold;margin:8px 0 10px 0}
   .cf-addr-row{width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:6px}
   .cf-addr-cell{border:1px solid #999;padding:5px 8px;font-weight:bold;font-size:10pt;text-align:center}
-  .cf-main{width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed;border:1px solid #999}
-  .cf-main td{padding:3px 4px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;border:1px solid #ccc}
+  .cf-header-tbl{width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed;border:1px solid #999;margin-bottom:10px;background:#fafafa}
+  .cf-header-tbl td{padding:4px 6px;border:1px solid #ddd;vertical-align:middle}
+  .cf-h-lbl{text-align:right;color:#555;font-size:7.5pt;white-space:nowrap}
+  .cf-h-val{text-align:right;font-weight:bold;font-size:8pt;white-space:nowrap}
+  .cf-h-total{font-weight:bold;font-size:8.5pt;border-top:2px solid #333;background:#f0f0f0}
+  .cf-exp-tbl{width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed;border:1px solid #999;margin-bottom:10px}
+  .cf-exp-tbl td{padding:3px 5px;border:1px solid #ccc;text-align:right;white-space:nowrap}
+  .cf-exp-hdr td{font-weight:bold;text-align:center;background:#f0f0f0;border-bottom:2px solid #888;font-size:8pt;padding:4px 5px}
+  .cf-exp-hdr-lbl{text-align:left !important}
+  .cf-exp-lbl{text-align:left !important;color:#333}
+  .cf-exp-total td{border-top:2px solid #333;font-weight:bold;background:#f5f5f5}
   .cf-lbl{text-align:right;color:#333;background:#fafafa}.cf-val{text-align:right;white-space:nowrap}.cf-val-b{text-align:right;font-weight:bold;white-space:nowrap}
   .cf-hdr{font-weight:bold;text-align:center;border-bottom:2px solid #888;padding-bottom:3px;font-size:8pt;background:#f0f0f0}
   .cf-pink{color:#d63384;font-weight:bold}
   .cf-total td{border-top:2px solid #333;font-weight:bold;padding-top:4px;background:#f5f5f5}
-  .cf-summary{width:100%;border-collapse:collapse;font-size:8pt;margin-top:10px;table-layout:fixed;border:1px solid #999}
+  .cf-summary{width:100%;border-collapse:collapse;font-size:8pt;margin-top:0;table-layout:fixed;border:1px solid #999}
   .cf-summary td{padding:3px 4px;border:1px solid #ccc}
   .cf-section-hdr{font-weight:bold;font-size:9pt;color:#d63384;padding-top:6px;background:#fdf2f8}
   .cf-disclaimer{font-size:7pt;color:#d63384;margin-top:10px;font-style:italic;text-align:center;line-height:1.3}
@@ -616,36 +625,70 @@ function buildSuburbReportHtml(d) {
 
 // ─── CASHFLOW PAGE ───
 function buildCashflowPage(title, cf, propertyAddress, state) {
-  const R = (lbl, lv, rbl, rv1, rv2, rv3, cls) => {
-    // Builds a 6-col row: left-label | left-value | right-label | right-val1 | right-val2 | right-val3
-    const c = cls ? ` class="${cls}"` : '';
-    return `<tr${c}><td class="cf-lbl">${lbl}</td><td class="cf-val">${lv}</td><td class="cf-lbl">${rbl}</td><td class="cf-val">${rv1}</td><td class="cf-val">${rv2}</td><td class="cf-val">${rv3}</td></tr>`;
-  };
-
   return `
 <div class="page"><img src="${LOGO_SRC}" class="logo" alt="PropWealth">
   <div class="cf-title">${title}</div>
   <table class="cf-addr-row"><tr><td style="width:15%"></td><td class="cf-addr-cell" style="width:48%">${propertyAddress}</td><td style="width:12%"></td><td style="text-align:right;font-size:8pt;width:8%">Date:</td><td style="text-align:right;font-size:8pt;width:17%">${cf.date||""}</td></tr></table>
-  <table class="cf-main">
-    <colgroup><col style="width:17%"><col style="width:14%"><col style="width:23%"><col style="width:14%"><col style="width:16%"><col style="width:16%"></colgroup>
-    <tr><td></td><td></td><td class="cf-hdr">Yield on Purchase</td><td class="cf-pink" style="text-align:right">Low rent</td><td></td><td class="cf-val">${cf.yieldLowRent}</td></tr>
-    <tr><td class="cf-lbl">State</td><td class="cf-val-b">${state||""}</td><td></td><td class="cf-pink" style="text-align:right">High rent</td><td></td><td class="cf-val">${cf.yieldHighRent}</td></tr>
-    <tr><td class="cf-lbl">Expected Purchase Price</td><td class="cf-val">$ ${cf.purchasePrice}</td><td class="cf-hdr">Estimated Rental</td><td></td><td></td><td></td></tr>
-    ${R("* Deposit %", cf.depositPercent, "Lower Rent", `<span class="cf-pink">$ ${cf.lowerRentWeekly}</span>`, `$ ${cf.lowerRentMonthly}`, `$ ${cf.lowerRentAnnually}`)}
-    ${R("Loan based on "+cf.lvrPercent+" LVR", "$ "+cf.loanAmount, "Higher Rent", `<span class="cf-pink">$ ${cf.higherRentWeekly}</span>`, `$ ${cf.higherRentMonthly}`, `$ ${cf.higherRentAnnually}`)}
-    <tr><td class="cf-lbl">Deposit based on ${cf.depositPercentLabel}</td><td class="cf-val">$ ${cf.depositAmount}</td><td class="cf-hdr">Expenses</td><td class="cf-hdr">Weekly</td><td class="cf-hdr">Monthly</td><td class="cf-hdr">Annually</td></tr>
-    ${R("Estimated Stamp Duty", "$ "+cf.stampDuty, "Council", "$ "+cf.councilWeekly, "$ "+cf.councilMonthly, "$ "+cf.councilAnnually)}
-    ${R(cf.lmi?"Estimated LMI":"", cf.lmi?"$ "+cf.lmi:"", "Strata Fees", cf.strataWeekly?"$ "+cf.strataWeekly:"$ -", cf.strataMonthly?"$ "+cf.strataMonthly:"$ -", cf.strataAnnually||"")}
-    ${R("Mortgage/Transfer/Fee", "$ "+cf.mortgageFee, "Building Insurance", cf.buildingInsWeekly?"$ "+cf.buildingInsWeekly:"$ -", cf.buildingInsMonthly?"$ "+cf.buildingInsMonthly:"$ -", cf.buildingInsAnnually?"$ "+cf.buildingInsAnnually:"")}
-    ${R("Estimated Legals", "$ "+cf.legals, "Landlord Insurance", "$ "+cf.landlordInsWeekly, "$ "+cf.landlordInsMonthly, "$ "+cf.landlordInsAnnually)}
-    ${R("Pest &amp; Building Report", "$ "+cf.pestReport, "Other", cf.otherWeekly?"$ "+cf.otherWeekly:"$ -", cf.otherMonthly?"$ "+cf.otherMonthly:"$ -", cf.otherAnnually?"$ "+cf.otherAnnually:"")}
-    ${R("Strata Report", cf.strataReport?"$ "+cf.strataReport:"", "* Mgmt fee "+cf.mgmtFeePercent, "$ "+cf.mgmtFeeWeekly, "$ "+cf.mgmtFeeMonthly, "$ "+cf.mgmtFeeAnnually)}
-    ${R("Buyers Agency Fee", "$ "+cf.buyersAgencyFee, "* IO rate "+cf.interestOnlyRate, "$ "+cf.interestOnlyWeekly, "$ "+cf.interestOnlyMonthly, "$ "+cf.interestOnlyAnnually)}
-    ${R("Estimated Renovation", cf.renovation?"$ "+cf.renovation:"", "* P&amp;I rate "+cf.principalInterestRate, "$ "+cf.principalInterestWeekly, "$ "+cf.principalInterestMonthly, "$ "+cf.principalInterestAnnually)}
-    <tr class="cf-total"><td class="cf-lbl">Total Funds Required</td><td class="cf-val-b">$ ${cf.totalFundsRequired}</td><td class="cf-lbl">${cf.totalExpenseLabel}</td><td class="cf-val-b">$ ${cf.totalExpenseWeekly}</td><td class="cf-val-b">$ ${cf.totalExpenseMonthly}</td><td class="cf-val-b">$ ${cf.totalExpenseAnnually}</td></tr>
+
+  <!-- ═══ SECTION 1: Property & Loan Summary ═══ -->
+  <table class="cf-header-tbl">
+    <colgroup><col style="width:25%"><col style="width:25%"><col style="width:25%"><col style="width:25%"></colgroup>
+    <tr>
+      <td class="cf-h-lbl">State</td><td class="cf-h-val">${state||""}</td>
+      <td class="cf-h-lbl">Yield on Purchase (Low)</td><td class="cf-h-val">${cf.yieldLowRent}</td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">Expected Purchase Price</td><td class="cf-h-val">$ ${cf.purchasePrice}</td>
+      <td class="cf-h-lbl">Yield on Purchase (High)</td><td class="cf-h-val">${cf.yieldHighRent}</td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">* Deposit %</td><td class="cf-h-val">${cf.depositPercent}</td>
+      <td class="cf-h-lbl">Estimated Rental (Lower)</td><td class="cf-h-val cf-pink">$ ${cf.lowerRentWeekly} <span style="font-weight:normal;color:#555">/ $ ${cf.lowerRentAnnually} pa</span></td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">Loan based on ${cf.lvrPercent} LVR</td><td class="cf-h-val">$ ${cf.loanAmount}</td>
+      <td class="cf-h-lbl">Estimated Rental (Higher)</td><td class="cf-h-val cf-pink">$ ${cf.higherRentWeekly} <span style="font-weight:normal;color:#555">/ $ ${cf.higherRentAnnually} pa</span></td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">Deposit based on ${cf.depositPercentLabel}</td><td class="cf-h-val">$ ${cf.depositAmount}</td>
+      <td class="cf-h-lbl">Estimated Stamp Duty</td><td class="cf-h-val">$ ${cf.stampDuty}</td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">${cf.lmi?"Estimated LMI":"Mortgage/Transfer/Fee"}</td><td class="cf-h-val">${cf.lmi?"$ "+cf.lmi:"$ "+cf.mortgageFee}</td>
+      <td class="cf-h-lbl">Total Funds Required</td><td class="cf-h-val cf-h-total">$ ${cf.totalFundsRequired}</td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">Estimated Legals</td><td class="cf-h-val">$ ${cf.legals}</td>
+      <td class="cf-h-lbl">Pest &amp; Building Report</td><td class="cf-h-val">$ ${cf.pestReport}</td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">Strata Report</td><td class="cf-h-val">${cf.strataReport?"$ "+cf.strataReport:""}</td>
+      <td class="cf-h-lbl">Buyers Agency Fee</td><td class="cf-h-val">$ ${cf.buyersAgencyFee}</td>
+    </tr>
+    <tr>
+      <td class="cf-h-lbl">Estimated Renovation</td><td class="cf-h-val">${cf.renovation?"$ "+cf.renovation:""}</td>
+      <td></td><td></td>
+    </tr>
   </table>
+
+  <!-- ═══ SECTION 2: Expenses Table ═══ -->
+  <table class="cf-exp-tbl">
+    <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
+    <tr class="cf-exp-hdr"><td class="cf-exp-hdr-lbl">Expenses</td><td>Weekly</td><td>Monthly</td><td>Annually</td></tr>
+    <tr><td class="cf-exp-lbl">Council</td><td>$ ${cf.councilWeekly}</td><td>$ ${cf.councilMonthly}</td><td>$ ${cf.councilAnnually}</td></tr>
+    <tr><td class="cf-exp-lbl">Strata Fees</td><td>${cf.strataWeekly?"$ "+cf.strataWeekly:"$ -"}</td><td>${cf.strataMonthly?"$ "+cf.strataMonthly:"$ -"}</td><td>${cf.strataAnnually||""}</td></tr>
+    <tr><td class="cf-exp-lbl">Building Insurance</td><td>${cf.buildingInsWeekly?"$ "+cf.buildingInsWeekly:"$ -"}</td><td>${cf.buildingInsMonthly?"$ "+cf.buildingInsMonthly:"$ -"}</td><td>${cf.buildingInsAnnually?"$ "+cf.buildingInsAnnually:""}</td></tr>
+    <tr><td class="cf-exp-lbl">Landlord Insurance</td><td>$ ${cf.landlordInsWeekly}</td><td>$ ${cf.landlordInsMonthly}</td><td>$ ${cf.landlordInsAnnually}</td></tr>
+    <tr><td class="cf-exp-lbl">Other</td><td>${cf.otherWeekly?"$ "+cf.otherWeekly:"$ -"}</td><td>${cf.otherMonthly?"$ "+cf.otherMonthly:"$ -"}</td><td>${cf.otherAnnually?"$ "+cf.otherAnnually:""}</td></tr>
+    <tr><td class="cf-exp-lbl">* Mgmt fee ${cf.mgmtFeePercent}</td><td>$ ${cf.mgmtFeeWeekly}</td><td>$ ${cf.mgmtFeeMonthly}</td><td>$ ${cf.mgmtFeeAnnually}</td></tr>
+    <tr><td class="cf-exp-lbl">* IO rate ${cf.interestOnlyRate}</td><td>$ ${cf.interestOnlyWeekly}</td><td>$ ${cf.interestOnlyMonthly}</td><td>$ ${cf.interestOnlyAnnually}</td></tr>
+    <tr><td class="cf-exp-lbl">* P&amp;I rate ${cf.principalInterestRate}</td><td>$ ${cf.principalInterestWeekly}</td><td>$ ${cf.principalInterestMonthly}</td><td>$ ${cf.principalInterestAnnually}</td></tr>
+    <tr class="cf-exp-total"><td class="cf-exp-lbl">${cf.totalExpenseLabel}</td><td>$ ${cf.totalExpenseWeekly}</td><td>$ ${cf.totalExpenseMonthly}</td><td>$ ${cf.totalExpenseAnnually}</td></tr>
+  </table>
+
+  <!-- ═══ SECTION 3: Cashflow Summary ═══ -->
   <table class="cf-summary">
-    <colgroup><col style="width:45%"><col style="width:18%"><col style="width:18%"><col style="width:19%"></colgroup>
+    <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
     <tr><td colspan="4" class="cf-section-hdr">Cashflow Before Tax</td></tr>
     <tr><td class="cf-lbl">Lower Rent</td><td class="cf-val">-$ ${cf.cfBeforeTaxLowerWeekly}</td><td class="cf-val">-$ ${cf.cfBeforeTaxLowerMonthly}</td><td class="cf-val">-$ ${cf.cfBeforeTaxLowerAnnually}</td></tr>
     <tr><td class="cf-lbl">Higher Rent</td><td class="cf-val">-$ ${cf.cfBeforeTaxHigherWeekly}</td><td class="cf-val">-$ ${cf.cfBeforeTaxHigherMonthly}</td><td class="cf-val">-$ ${cf.cfBeforeTaxHigherAnnually}</td></tr>
