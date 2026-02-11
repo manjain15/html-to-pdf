@@ -14,6 +14,7 @@
   "dependencies": {
     "dropbox": "^10.34.0",
     "express": "^5.2.1",
-    "playwright": "^1.58.1"
+    "playwright": "^1.58.1",
+    "dotenv": "^16.3.1"
   }
 }

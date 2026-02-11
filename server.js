@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require("express");
 const fetch = require("node-fetch");
 const { chromium } = require("playwright");
@@ -60,7 +61,141 @@ async function dropboxUpload(filePath, contents) {
   return await resp.json();
 }
 
-const folders = { property: "/Properties Reports/Property Reports", suburb: "/Properties Reports/Suburb Property Report", other: "/Other Reports" };
+// Check if a file exists in Dropbox and get its metadata
+async function dropboxGetMetadata(filePath) {
+  const token = await getDropboxToken();
+  try {
+    const resp = await fetch("https://api.dropboxapi.com/2/files/get_metadata", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path: filePath }),
+    });
+    if (resp.status === 409) return null; // not found
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch { return null; }
+}
+
+// List files in a Dropbox folder, optionally filtering by prefix
+async function dropboxListFolder(folderPath, prefix) {
+  const token = await getDropboxToken();
+  try {
+    const resp = await fetch("https://api.dropboxapi.com/2/files/list_folder", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path: folderPath, recursive: false, limit: 500 }),
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    let entries = data.entries || [];
+    if (prefix) {
+      const lowerPrefix = prefix.toLowerCase();
+      entries = entries.filter(e => e.name.toLowerCase().startsWith(lowerPrefix));
+    }
+    return entries;
+  } catch { return []; }
+}
+
+// Search for files matching a query in a specific folder
+async function dropboxSearch(folderPath, query) {
+  const token = await getDropboxToken();
+  try {
+    const resp = await fetch("https://api.dropboxapi.com/2/files/search_v2", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        options: {
+          path: folderPath,
+          max_results: 10,
+          file_extensions: ["pdf"],
+        },
+      }),
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return (data.matches || []).map(m => m.metadata?.metadata || m.metadata).filter(Boolean);
+  } catch { return []; }
+}
+
+// Delete a file from Dropbox
+async function dropboxDelete(filePath) {
+  const token = await getDropboxToken();
+  try {
+    const resp = await fetch("https://api.dropboxapi.com/2/files/delete_v2", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path: filePath }),
+    });
+    return resp.ok;
+  } catch { return false; }
+}
+
+// Get or create a shared link for a Dropbox file
+async function dropboxGetSharedLink(filePath) {
+  const token = await getDropboxToken();
+  try {
+    // Try to create a new shared link
+    const resp = await fetch("https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ path: filePath, settings: { requested_visibility: "public" } }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.url;
+    }
+    // If link already exists (409 conflict), fetch existing links
+    if (resp.status === 409) {
+      const listResp = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_links", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ path: filePath, direct_only: true }),
+      });
+      if (listResp.ok) {
+        const listData = await listResp.json();
+        if (listData.links?.length) return listData.links[0].url;
+      }
+    }
+    return null;
+  } catch { return null; }
+}
+
+// Download a file from Dropbox (returns Buffer)
+async function dropboxDownload(filePath) {
+  const token = await getDropboxToken();
+  try {
+    const resp = await fetch("https://content.dropboxapi.com/2/files/download", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Dropbox-API-Arg": JSON.stringify({ path: filePath }),
+      },
+    });
+    if (!resp.ok) return null;
+    return Buffer.from(await resp.arrayBuffer());
+  } catch { return null; }
+}
+
+const folders = { property: "/Property Reports", suburb: "/Suburb Reports", other: "/Other Reports" };
 
 // ─── LOGO ───
 let LOGO_BASE64 = "";
@@ -103,6 +238,202 @@ const DEFAULTS = {
   smsfTaxBracket: 0,
 };
 
+// ─── STAMP DUTY CALCULATOR (all Australian states/territories) ───
+function calcStampDuty(price, state) {
+  const s = (state || "NSW").toUpperCase().trim();
+  const p = price;
+
+  if (s === "NSW") {
+    // NSW: standard rates (non-first-home, non-premium)
+    if (p <= 17000) return p * 0.0125;
+    if (p <= 36000) return 212.50 + (p - 17000) * 0.015;
+    if (p <= 97000) return 497.50 + (p - 36000) * 0.0175;
+    if (p <= 364000) return 1565 + (p - 97000) * 0.035;
+    if (p <= 1214000) return 10912.50 + (p - 364000) * 0.045;
+    if (p <= 3636000) return 49237.50 + (p - 1214000) * 0.055;
+    return 182447.50 + (p - 3636000) * 0.07;
+  }
+
+  if (s === "VIC") {
+    if (p <= 25000) return p * 0.014;
+    if (p <= 130000) return 350 + (p - 25000) * 0.024;
+    if (p <= 960000) return 2870 + (p - 130000) * 0.06;
+    if (p <= 2000000) return p * 0.055;
+    return 110000 + (p - 2000000) * 0.065;
+  }
+
+  if (s === "QLD") {
+    if (p <= 5000) return 0;
+    if (p <= 75000) return 1.50 * ((p - 5000) / 100);
+    if (p <= 540000) return 1050 + 3.50 * ((p - 75000) / 100);
+    if (p <= 1000000) return 17325 + 4.50 * ((p - 540000) / 100);
+    return 38025 + 5.75 * ((p - 1000000) / 100);
+  }
+
+  if (s === "WA") {
+    if (p <= 120000) return p * 0.019;
+    if (p <= 150000) return 2280 + (p - 120000) * 0.0285;
+    if (p <= 360000) return 3135 + (p - 150000) * 0.038;
+    if (p <= 725000) return 11115 + (p - 360000) * 0.0475;
+    return 28453 + (p - 725000) * 0.0515;
+  }
+
+  if (s === "SA") {
+    if (p <= 12000) return p * 0.01;
+    if (p <= 30000) return 120 + (p - 12000) * 0.02;
+    if (p <= 50000) return 480 + (p - 30000) * 0.03;
+    if (p <= 100000) return 1080 + (p - 50000) * 0.035;
+    if (p <= 200000) return 2830 + (p - 100000) * 0.04;
+    if (p <= 250000) return 6830 + (p - 200000) * 0.045;
+    if (p <= 300000) return 9080 + (p - 250000) * 0.05;
+    if (p <= 500000) return 11330 + (p - 300000) * 0.05;
+    return 21330 + (p - 500000) * 0.055;
+  }
+
+  if (s === "TAS") {
+    if (p <= 3000) return 50;
+    if (p <= 25000) return 50 + (p - 3000) * 0.0175;
+    if (p <= 75000) return 435 + (p - 25000) * 0.025;
+    if (p <= 200000) return 1685 + (p - 75000) * 0.035;
+    if (p <= 375000) return 6060 + (p - 200000) * 0.04;
+    if (p <= 725000) return 13060 + (p - 375000) * 0.0425;
+    return 27935 + (p - 725000) * 0.045;
+  }
+
+  if (s === "ACT") {
+    // ACT uses a unit-based system — simplified approximation
+    if (p <= 260000) return p * 0.006 * (p / 100);
+    if (p <= 300000) return p * 0.02273;
+    if (p <= 500000) return p * 0.0344;
+    if (p <= 750000) return p * 0.0419;
+    if (p <= 1000000) return p * 0.0458;
+    if (p <= 1455000) return p * 0.0494;
+    return p * 0.055;
+  }
+
+  if (s === "NT") {
+    // NT uses a formula-based approach — simplified
+    const v = p / 1000;
+    if (p <= 525000) return (0.06571441 * v * v + 15 * v) * 1;
+    return p * 0.0495;
+  }
+
+  // Fallback: rough 4% estimate
+  return p * 0.04;
+}
+
+// ─── MORTGAGE REGISTRATION FEE (state-based) ───
+function calcMortgageFee(state) {
+  const fees = {
+    NSW: 154.60, VIC: 119.70, QLD: 195, WA: 189.40,
+    SA: 177, TAS: 141.29, ACT: 160, NT: 156,
+  };
+  return fees[(state || "NSW").toUpperCase()] || 160;
+}
+
+// ─── GOOGLE PLACES: NEARBY AMENITIES ───
+const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
+
+async function fetchNearbyAmenities(address) {
+  if (!GOOGLE_API_KEY) {
+    console.log("⚠️ No GOOGLE_PLACES_API_KEY set — skipping amenities fetch");
+    return [];
+  }
+
+  try {
+    // Step 1: Geocode the address to get lat/lng
+    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_API_KEY}`;
+    const geoResp = await fetch(geoUrl);
+    const geoData = await geoResp.json();
+
+    if (!geoData.results?.length) {
+      console.log("⚠️ Could not geocode address for amenities");
+      return [];
+    }
+
+    const { lat, lng } = geoData.results[0].geometry.location;
+    console.log(`   📍 Geocoded: ${lat}, ${lng}`);
+
+    // Step 2: Search curated categories — 1 result each for a clean, professional list
+    // Categories chosen to match the Cranbourne East reference report style
+    const categories = [
+      { type: "shopping_mall", label: "Shopping Centre", radius: 4000, max: 1 },
+      { type: "supermarket", label: "Supermarket", radius: 2500, max: 1 },
+      { type: "park", label: "Park", radius: 2000, max: 1 },
+      { type: "hospital", label: "Hospital", radius: 5000, max: 1 },
+      { type: "train_station", label: "Train Station", radius: 4000, max: 1 },
+    ];
+
+    const amenities = [];
+    const seenNames = new Set();
+
+    // Words that indicate low-quality or irrelevant results
+    const excludePatterns = /childcare|daycare|child care|preschool|kindergarten|dentist|physio|chiro|vet|veterinary|pharmacy|chemist|real estate|solicitor|accountant|hairdress|beauty|nail|tattoo|gym|fitness|personal train|massage|spine|osteo/i;
+
+    for (const cat of categories) {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${cat.radius}&type=${cat.type}&key=${GOOGLE_API_KEY}`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        if (data.results) {
+          let count = 0;
+          for (const place of data.results) {
+            if (count >= cat.max) break;
+
+            const name = place.name;
+            const nameKey = name.toLowerCase();
+
+            // Skip duplicates, excluded types, and results that are just person names
+            if (seenNames.has(nameKey)) continue;
+            if (excludePatterns.test(name)) continue;
+            // Skip if name is too short (likely a person name) or has no spaces (single word business)
+            if (name.split(/\s+/).length <= 1 && cat.type !== "park") continue;
+
+            seenNames.add(nameKey);
+
+            // Calculate distance
+            const dist = haversine(lat, lng, place.geometry.location.lat, place.geometry.location.lng);
+            const distStr = dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`;
+
+            amenities.push({
+              name,
+              distance: distStr,
+              category: cat.label,
+              formatted: `${name} - ${distStr}`,
+            });
+            count++;
+          }
+        }
+      } catch (e) {
+        console.log(`   ⚠️ Places search failed for ${cat.type}:`, e.message);
+      }
+    }
+
+    // Sort by distance
+    amenities.sort((a, b) => {
+      const distA = parseFloat(a.distance) || 0;
+      const distB = parseFloat(b.distance) || 0;
+      return distA - distB;
+    });
+
+    console.log(`   ✅ Found ${amenities.length} nearby amenities`);
+    return amenities;
+  } catch (err) {
+    console.error("⚠️ Google Places error:", err.message);
+    return [];
+  }
+}
+
+// Haversine distance in km
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // ─── LMI CALCULATOR ───
 function calcLMI(depositPct, loan) {
   if (depositPct >= 0.20) return 0;
@@ -127,8 +458,8 @@ function calculateCashflow(input, state, isSMSF) {
   const loan = price * (1 - depositPct);
   const lvrPct = (1 - depositPct) * 100;
 
-  const stampDuty = num(input.stampDuty);
-  const mortgageFee = num(input.mortgageFee);
+  const stampDuty = input.stampDuty != null ? num(input.stampDuty) : calcStampDuty(price, st);
+  const mortgageFee = input.mortgageFee != null ? num(input.mortgageFee) : calcMortgageFee(st);
   const lmi = input.lmi != null ? num(input.lmi) : calcLMI(depositPct, loan);
   const legals = input.legals != null ? num(input.legals) : D.legals;
   const pestReport = input.pestReport != null ? num(input.pestReport) : D.pestReport;
@@ -250,7 +581,7 @@ const sharedStyles = `
   .prop-subtitle{color:#444;margin:2px 0 6px 0}.prop-config{margin:4px 0 10px 0;font-weight:600}
   .features{margin:8px 0;padding-left:18px}.features li{margin:2px 0;font-size:10pt}
   .amenities{margin:8px 0;padding-left:18px}.amenities li{margin:2px 0;font-size:9.5pt;color:#333}
-  .comp-sale{margin:6px 0;padding:4px 0}.comp-address{font-weight:bold;font-size:10pt}.comp-details{color:#555;font-size:9.5pt}
+  .comp-sale{margin:6px 0;padding:4px 0}.comp-address{font-weight:bold;font-size:10pt}.comp-details{color:#555;font-size:9.5pt}.comps-section{}
   .cf-title{font-size:14pt;font-weight:bold;margin:8px 0 10px 0}
   .cf-addr-row{width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:6px}
   .cf-addr-cell{border:1px solid #999;padding:5px 8px;font-weight:bold;font-size:10pt;text-align:center}
@@ -333,7 +664,19 @@ function buildPropertyReportHtml(d) {
   let html = buildSuburbReportHtml(d).replace("</body></html>", "");
   const featuresHtml = (d.propertyFeatures||[]).length ? `<ul class="features">${d.propertyFeatures.map(f=>`<li>${f}</li>`).join("")}</ul>` : "";
   const amenitiesHtml = (d.amenities||[]).length ? `<h3>Location and Amenities</h3><ul class="amenities">${d.amenities.map(a=>`<li>${a}</li>`).join("")}</ul>` : "";
-  const compsHtml = (d.comparableSales||[]).map((cs,i)=>`<div class="comp-sale"><div class="comp-address">${i+1}. ${cs.address} –</div><div class="comp-details">${cs.beds}| ${cs.baths} | ${cs.garages} built on ${cs.landSize} Land sold ${cs.soldPrice} on ${cs.soldDate}.</div></div>`).join("");
+  const compsHtml = (d.comparableSales||[]).map((cs,i)=>{
+    // Build config line — only show parts that have data
+    const configParts = [];
+    if (cs.beds) configParts.push(cs.beds + " Bed");
+    if (cs.baths) configParts.push(cs.baths + " Bath");
+    if (cs.garages) configParts.push(cs.garages + " Car");
+    const configStr = configParts.length ? configParts.join(" | ") : "";
+    const landStr = cs.landSize ? (configStr ? " on " : "") + cs.landSize + " Land" : "";
+    const soldStr = cs.soldPrice ? " sold " + cs.soldPrice : "";
+    const dateStr = cs.soldDate ? " on " + cs.soldDate : "";
+    const detailLine = [configStr, landStr, soldStr, dateStr].filter(s=>s).join("").trim();
+    return `<div class="comp-sale"><div class="comp-address">${i+1}. ${cs.address} –</div>${detailLine ? `<div class="comp-details">${detailLine}.</div>` : ""}</div>`;
+  }).join("");
   let descHtml = "";
   if (d.propertyDescription) {
     const paras = typeof d.propertyDescription === "string" ? d.propertyDescription.split(/\n\s*\n/).filter(p=>p.trim()) : (Array.isArray(d.propertyDescription) ? d.propertyDescription : []);
@@ -345,8 +688,7 @@ function buildPropertyReportHtml(d) {
   ${d.occupancyStatus?`<div class="prop-subtitle">${d.occupancyStatus}${d.currentRent?", Rental potential "+d.currentRent+" per week.":""}</div>`:(d.currentRent?`<div class="prop-subtitle">Currently Rented for ${d.currentRent} per week</div>`:"")}
   <div class="prop-config">${d.bedrooms||""} Bedrooms | ${d.bathrooms||""} Bathrooms | ${d.garages||""} Car Spaces${d.buildingSize?" | "+d.buildingSize:""}${d.landSize?" on "+d.landSize+" land":""}${d.yearBuilt?" | Built "+d.yearBuilt:""}</div>
   ${descHtml}${featuresHtml}${d.locationDescription?`<p>${d.locationDescription}</p>`:""}${amenitiesHtml}
-  ${compsHtml?`<h2>Comparable Sales –</h2>${compsHtml}`:""}
-  ${footerHtml}</div>`;
+  ${footerHtml}</div>${compsHtml?`<div class="page"><img src="${LOGO_SRC}" class="logo" alt="PropWealth"><div class="comps-section"><h2>Comparable Sales –</h2>${compsHtml}</div>${footerHtml}</div>`:""}`;
 
   // Cashflow — auto-calculate from minimal inputs
   if (d.cashflowInputs) {
@@ -363,13 +705,34 @@ function buildPropertyReportHtml(d) {
 }
 
 // ─── PDF ───
-async function generatePdfAndUpload(html, reportType, reportName) {
+function makeSafeName(name) {
+  return name.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+}
+
+function makePropertyPath(address) {
+  return `${folders.property}/${makeSafeName(address)}.pdf`;
+}
+
+function makeSuburbPath(suburb) {
+  return `${folders.suburb}/${makeSafeName(suburb)}_Suburb_Report.pdf`;
+}
+
+function makeSuburbDataPath(suburb) {
+  return `${folders.suburb}/${makeSafeName(suburb)}_Suburb_Data.json`;
+}
+
+async function generatePdfBuffer(html) {
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: "networkidle", timeout: 15000 });
   const pdf = await page.pdf({ format: "A4", printBackground: true, margin: { top: "0mm", bottom: "0mm", left: "0mm", right: "0mm" }, displayHeaderFooter: false });
   await browser.close();
-  const safeName = reportName.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+  return pdf;
+}
+
+async function generatePdfAndUpload(html, reportType, reportName) {
+  const pdf = await generatePdfBuffer(html);
+  const safeName = makeSafeName(reportName);
   const folderPath = folders[reportType.toLowerCase()] || folders["other"];
   const filename = `${folderPath}/${safeName}.pdf`;
   await dropboxUpload(filename, pdf);
@@ -407,4 +770,688 @@ app.post("/convert", async (req, res) => {
   } catch (err) { console.error("❌", err); res.status(500).send("❌ Error"); }
 });
 
-app.listen(process.env.PORT || 3000, () => console.log("PropWealth Report Generator running on port " + (process.env.PORT || 3000)));
+// ══════════════════════════════════════════════════════════════
+// AUTO-REPORT: address in → scrape → generate → Dropbox
+// ══════════════════════════════════════════════════════════════
+
+const SCRAPER_BASE = process.env.SCRAPER_URL || "http://localhost:3000";
+const SCRAPER_KEY = process.env.SCRAPER_API_KEY || "";
+
+// Australian state → full name mapping
+const STATE_NAMES = {
+  NSW: "New South Wales", VIC: "Victoria", QLD: "Queensland",
+  WA: "Western Australia", SA: "South Australia", TAS: "Tasmania",
+  ACT: "Australian Capital Territory", NT: "Northern Territory",
+};
+
+// Parse "22 Baron Way, Gosnells, WA 6110" → { street, suburb, state, postcode }
+function parseAddress(address) {
+  const parts = address.split(",").map(s => s.trim());
+  if (parts.length < 2) return { street: address, suburb: "", state: "", postcode: "" };
+
+  const street = parts[0];
+  const suburb = parts.length >= 3 ? parts[1] : "";
+  const lastPart = parts[parts.length - 1]; // "WA 6110" or "NSW 2153"
+  const statePostMatch = lastPart.match(/^([A-Z]{2,3})\s+(\d{4})$/);
+
+  return {
+    street,
+    suburb: suburb || (parts.length === 2 ? "" : ""),
+    state: statePostMatch ? statePostMatch[1] : "",
+    postcode: statePostMatch ? statePostMatch[2] : "",
+  };
+}
+
+// Call scraper API with error handling
+async function callScraper(endpoint, body) {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (SCRAPER_KEY) headers["x-api-key"] = SCRAPER_KEY;
+
+    const resp = await fetch(`${SCRAPER_BASE}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      timeout: 120000,
+    });
+    const data = await resp.json();
+    return data;
+  } catch (err) {
+    console.error(`⚠️ Scraper ${endpoint} failed:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+// Map scraper outputs → PDF generator inputs
+function mapScraperToReport(input, suburbData, propertyData, comparablesData, placesAmenities) {
+  const parsed = parseAddress(input.address);
+  const state = input.state || parsed.state;
+  const suburb = input.suburb || parsed.suburb;
+  const stateName = input.stateName || STATE_NAMES[state] || state;
+
+  // ── Suburb text (from Claude AI via scraper, or from input overrides) ──
+  const sub = suburbData?.data || {};
+
+  // Determine city — use Claude's LGA name, or fallback to suburb
+  const cityName = input.cityName || sub.city_name || suburb;
+
+  // Parse highlights — Claude now returns an array, but handle string fallback
+  let highlights = input.cityHighlights || [];
+  if (!highlights.length && sub.highlights) {
+    if (typeof sub.highlights === "string") {
+      highlights = sub.highlights.split(/\n|•|–/).map(s => s.trim()).filter(s => s);
+    } else if (Array.isArray(sub.highlights)) {
+      highlights = sub.highlights;
+    }
+  }
+
+  // Parse paragraphs from Claude text
+  function textToParagraphs(text) {
+    if (!text) return [];
+    if (Array.isArray(text)) return text;
+    return text.split(/\n\s*\n/).map(s => s.trim()).filter(s => s);
+  }
+
+  const cityParagraphs = input.cityParagraphs || textToParagraphs(sub.suburb_overview);
+  const futureProspectsParagraphs = input.futureProspectsParagraphs || textToParagraphs(sub.future_prospects);
+
+  // Suburb demographics paragraph — from Claude AI or manual input
+  let suburbParagraphs = input.suburbParagraphs || [];
+  if (!suburbParagraphs.length && sub.suburb_demographics) {
+    suburbParagraphs = textToParagraphs(sub.suburb_demographics);
+  }
+
+  // ── Property data (from CoreLogic, or from input overrides) ──
+  const prop = propertyData?.data || {};
+
+  // Build property description from listing description — clean up agent dump
+  let propertyDescription = input.propertyDescription || "";
+  let propertyFeatures = input.propertyFeatures || [];
+
+  if (!propertyDescription && prop.listing_description) {
+    const raw = prop.listing_description;
+
+    // Patterns to strip from descriptions — CTAs, agent marketing, contact info, estate marketing
+    const stripPatterns = [
+      /(?:call|contact|phone|ring|reach out to)\s+(?:us|me|the agent|our team)\b[^.]*[.!?]?\s*/gi,
+      /(?:don'?t miss|act fast|be quick|won'?t last|hurry|register your interest|enquire now|inspect today)[^.]*[.!?]?\s*/gi,
+      /(?:for (?:more |further )?(?:information|details|enquiries|inspection times?))[^.]*[.!?]?\s*/gi,
+      /(?:Built|Sold|Presented|Offered|Listed|Marketed)\s+by\s+[^.]+\.\s*/gi,
+      /Disclaimer:[\s\S]*/i,
+      /(?:all information|we have)[^.]*(?:accuracy|responsibility|liable|warranty)[^.]*\.\s*/gi,
+      /(?:every care|reasonable effort)[^.]*(?:accuracy|correct)[^.]*\.\s*/gi,
+      // Estate/development marketing language
+      /(?:is bursting to life|perfectly positioned to take advantage)[^.]*\.\s*/gi,
+      /(?:you'll be delighted|you will be delighted|you won't be disappointed)[^.]*\.\s*/gi,
+      /(?:create a new balance|a sense of freedom|promises a relaxed)[^.]*\.\s*/gi,
+      /(?:set within an exclusive|exclusive enclave|highly.?sought after pocket)[^.]*\.\s*/gi,
+      /(?:find out more about|find out how)[^.]*\.\s*/gi,
+    ];
+
+    // Detect if the entire description is estate/development marketing (not property-specific)
+    // Signs: references estate names without specific property features like rooms, kitchen, etc.
+    const estateMarketingScore = [
+      /\b(?:estate|rise|village|gardens|grove|heights|terrace|meadows|quarter)\b.*(?:is perfectly|take advantage|bursting to life|promises)/i,
+      /(?:work,?\s*life\s*and\s*play|family.?friendly\s*lifestyle\s*for\s*its\s*residents)/i,
+      /(?:create a new|borne out of|sense of freedom)/i,
+    ].reduce((score, re) => score + (re.test(raw) ? 1 : 0), 0);
+
+    // If 2+ estate marketing signals, the description is about the estate, not this property — discard
+    const isEstateMarketing = estateMarketingScore >= 2;
+
+    function cleanAgentText(text) {
+      let cleaned = text;
+      for (const pattern of stripPatterns) {
+        cleaned = cleaned.replace(pattern, "");
+      }
+      return cleaned.trim();
+    }
+
+    // Split on common feature delimiters: *, •, –, or numbered lists
+    const featurePattern = /(?:\*|•|–|\d+\.\s)/;
+
+    if (isEstateMarketing) {
+      // Description is about the estate/development, not this property — skip it
+      console.log(`   ⚠️ Listing description appears to be estate marketing — skipping`);
+      propertyDescription = "";
+    } else if (featurePattern.test(raw)) {
+      // Split into intro text and features
+      const firstDelimiter = raw.search(featurePattern);
+      const introText = raw.substring(0, firstDelimiter).trim();
+      const featuresText = raw.substring(firstDelimiter);
+
+      // Extract intro paragraphs (trim to reasonable length — ~2 paragraphs)
+      if (introText) {
+        const cleanIntro = cleanAgentText(introText);
+        // Split into sentences, take first ~3 sentences for a concise description
+        const sentences = cleanIntro.match(/[^.!?]+[.!?]+/g) || [cleanIntro];
+        propertyDescription = sentences.slice(0, 4).join(" ").trim();
+      }
+
+      // Extract features as bullet points
+      if (!propertyFeatures.length) {
+        propertyFeatures = featuresText
+          .split(/\*|•|–/)
+          .map(f => f.trim())
+          .filter(f => f.length > 5 && f.length < 200)
+          // Remove disclaimer text from features
+          .filter(f => !/disclaimer|accuracy|responsibility|interested parties/i.test(f))
+          .slice(0, 15); // Cap at 15 features
+      }
+    } else {
+      // No features delimiter found — just use first ~4 sentences as description
+      const cleanText = cleanAgentText(raw);
+      const sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [cleanText];
+      propertyDescription = sentences.slice(0, 4).join(" ").trim();
+    }
+  }
+
+  // Map schools + Google Places to amenities format
+  let amenities = input.amenities || [];
+  if (!amenities.length) {
+    const seenNames = new Set();
+
+    // CoreLogic schools first
+    if (prop.schools?.length) {
+      for (const s of prop.schools) {
+        const entry = `${s.name}${s.distance ? " - " + s.distance : ""}${s.type ? " (" + s.type + ")" : ""}`;
+        seenNames.add(s.name.toLowerCase());
+        amenities.push(entry);
+      }
+    }
+
+    // Google Places amenities (deduplicated against schools)
+    if (placesAmenities?.length) {
+      for (const a of placesAmenities) {
+        if (seenNames.has(a.name.toLowerCase())) continue;
+        seenNames.add(a.name.toLowerCase());
+        amenities.push(a.formatted);
+      }
+    }
+  }
+
+  // ── Comparable sales ──
+  let comparableSales = input.comparableSales || [];
+  if (!comparableSales.length && comparablesData?.success && comparablesData.data) {
+    comparableSales = comparablesData.data
+      .filter(c => c.success)
+      .map(c => ({
+        address: c.address,
+        beds: c.bedrooms || "",
+        baths: c.bathrooms || "",
+        garages: c.car_spaces || "",
+        landSize: c.land_size || "",
+        soldPrice: c.sold_price || "",
+        soldDate: c.sold_date || "",
+      }));
+  }
+
+  // ── Insights from DSR (with source labels) ──
+  function fmtInsight(value, recommendation, source) {
+    if (!value) return "";
+    // If value already has a label in parentheses, use as-is
+    if (String(value).includes("(")) return value;
+    const labels = [];
+    if (recommendation) labels.push(recommendation);
+    if (source) labels.push(source);
+    if (labels.length) return value + " (" + labels.join(" | ") + ")";
+    return value;
+  }
+
+  const vacancySource = sub.vacancy_source || "DSR Data";
+  const insights = input.insights || {
+    percentageRenters: fmtInsight(sub.renters_percentage, "Ideally under 40%", "DSR Data"),
+    daysOnMarket: fmtInsight(sub.days_on_market ? sub.days_on_market + " days" : "", "Recommended under 60 days", "DSR Data"),
+    vacancyRate: fmtInsight(sub.vacancy_rate, "Ideal under 1.5%", vacancySource),
+    vendorDiscounting: fmtInsight(sub.vendor_discounting && sub.vendor_discounting !== "0.00%" && sub.vendor_discounting !== "0%" ? sub.vendor_discounting : "", "Ideal under 5% plus", "DSR Data"),
+    stockOnMarket: fmtInsight(sub.stock_on_market, "Ideal under 2%", "DSR Data"),
+  };
+
+  // ── Rental estimates for cashflow ──
+  // CoreLogic rental values come in various formats:
+  //   "$1,100/W", "$1.1k/W", "$1,100", "$650/W", "$650"
+  function parseRental(val) {
+    if (!val) return 0;
+    const s = String(val).trim();
+
+    // Handle "k" suffix: "$1.1k" → 1100
+    const kMatch = s.match(/\$?\s*([\d,.]+)\s*k/i);
+    if (kMatch) {
+      return parseFloat(kMatch[1].replace(/,/g, "")) * 1000;
+    }
+
+    // Handle standard: "$1,100/W" or "$650" — strip non-numeric except dots
+    const cleaned = s.replace(/,/g, "").match(/\$?\s*([\d.]+)/);
+    if (cleaned) {
+      const num = parseFloat(cleaned[1]);
+      // Sanity check: if value is unrealistically low for weekly rent (< $50),
+      // it's probably in thousands (e.g., "1.1" meaning $1,100)
+      if (num > 0 && num < 50) return num * 1000;
+      return num;
+    }
+    return 0;
+  }
+
+  const rentalLow = parseRental(input.lowerRentWeekly || prop.rental_low || input.currentRent);
+  const rentalHigh = parseRental(input.higherRentWeekly || prop.rental_high || input.currentRent) || rentalLow;
+
+  // ── Purchase price — from input, CoreLogic valuation, or CoreLogic sold price ──
+  function parsePrice(val) {
+    if (!val) return 0;
+    if (typeof val === "number") return val;
+    const str = String(val).trim();
+    // Handle suffixes like $3.92M, $3.92m, $975K, $975k
+    const suffixMatch = str.match(/\$?\s*([\d,.]+)\s*(m|k)/i);
+    if (suffixMatch) {
+      const num = parseFloat(suffixMatch[1].replace(/,/g, ""));
+      const suffix = suffixMatch[2].toLowerCase();
+      if (suffix === "m") return num * 1000000;
+      if (suffix === "k") return num * 1000;
+    }
+    return parseFloat(str.replace(/[^0-9.]/g, "")) || 0;
+  }
+
+  const purchasePrice = parsePrice(input.purchasePrice || input.price) ||
+                        parsePrice(prop.valuation_estimate) ||
+                        parsePrice(prop.sold_price) || 0;
+
+  // ── Cashflow inputs (auto from scraped data, overridable) ──
+  let cashflowInputs = input.cashflowInputs || null;
+  if (!cashflowInputs && purchasePrice > 0 && rentalLow > 0) {
+    cashflowInputs = {
+      purchasePrice,
+      lowerRentWeekly: rentalLow,
+      higherRentWeekly: rentalHigh,
+      // Auto-calculate stamp duty and mortgage fee if not provided
+      stampDuty: input.stampDuty != null ? input.stampDuty : undefined, // let calculateCashflow auto-calc
+      mortgageFee: input.mortgageFee != null ? input.mortgageFee : undefined,
+    };
+  }
+
+  // Allow individual cashflow field overrides
+  if (cashflowInputs && input.cashflowOverrides) {
+    cashflowInputs = { ...cashflowInputs, ...input.cashflowOverrides };
+  }
+
+  // ── Build final report data ──
+  return {
+    // City/Suburb pages
+    cityName,
+    stateName,
+    cityHighlights: highlights,
+    cityParagraphs,
+    futureProspectsParagraphs,
+    suburbName: suburb,
+    suburbParagraphs,
+    insights,
+
+    // Property page
+    propertyAddress: input.address,
+    state,
+    listingType: input.listingType || (prop.market_status === "OFF Market" ? "OFF MARKET" : (prop.market_status || "")),
+    price: input.price || (purchasePrice ? "$" + Number(purchasePrice).toLocaleString() : ""),
+    currentRent: input.currentRent || (prop.current_rental ? "$" + parseRental(prop.current_rental).toLocaleString() : ""),
+    occupancyStatus: input.occupancyStatus || prop.occupancy_status || "",
+    bedrooms: input.bedrooms || prop.bedrooms || "",
+    bathrooms: input.bathrooms || prop.bathrooms || "",
+    garages: input.garages || prop.car_spaces || "",
+    landSize: input.landSize || (prop.land_size ? prop.land_size + " sqm" : ""),
+    buildingSize: input.buildingSize || (prop.floor_area ? prop.floor_area + " sqm" : ""),
+    yearBuilt: input.yearBuilt || prop.year_built || "",
+    propertyType: input.propertyType || prop.property_type || "",
+    propertyDescription,
+    propertyFeatures,
+    locationDescription: input.locationDescription || "",
+    amenities,
+    comparableSales,
+
+    // Cashflow
+    cashflowInputs,
+    smsfCashflowInputs: input.smsfCashflowInputs || null,
+
+    // Report settings
+    reportName: input.reportName || input.address.split(",")[0].trim().replace(/\s+/g, "_"),
+  };
+}
+
+// ── AUTO-REPORT ENDPOINT ──
+app.post("/auto-report", async (req, res) => {
+  const input = req.body;
+
+  if (!input.address) {
+    return res.status(400).json({ error: "Missing required field: address" });
+  }
+
+  console.log(`\n🚀 Auto-report for: ${input.address}`);
+  const startTime = Date.now();
+  const errors = [];
+
+  try {
+    const parsed = parseAddress(input.address);
+    const suburb = input.suburb || parsed.suburb;
+    const state = input.state || parsed.state;
+    const postcode = input.postcode || parsed.postcode;
+
+    if (!suburb || !state || !postcode) {
+      return res.status(400).json({
+        error: "Could not parse suburb/state/postcode from address. Please provide them explicitly.",
+        parsed,
+      });
+    }
+
+    // ════════════════════════════════════════════
+    // STEP 1: Check if property report already exists
+    // ════════════════════════════════════════════
+    const propertyPath = makePropertyPath(input.reportName || parsed.street + "_" + suburb);
+    const existingProperty = await dropboxGetMetadata(propertyPath);
+
+    if (existingProperty && !input.forceRegenerate) {
+      const link = await dropboxGetSharedLink(propertyPath);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`   ⏩ Property report already exists: ${propertyPath}`);
+      return res.json({
+        success: true,
+        exists: true,
+        message: `Property report already exists: ${existingProperty.name}`,
+        path: propertyPath,
+        dropboxLink: link || undefined,
+        lastModified: existingProperty.server_modified || existingProperty.client_modified,
+        elapsed: elapsed + "s",
+      });
+    }
+
+    // ════════════════════════════════════════════
+    // STEP 2: Check suburb report cache
+    // ════════════════════════════════════════════
+    const suburbPath = makeSuburbPath(suburb);
+    const existingSuburb = await dropboxGetMetadata(suburbPath);
+    let suburbResult = null;
+    let suburbIsFresh = false;
+    let cachedSuburbData = null;
+
+    if (existingSuburb) {
+      const modDate = new Date(existingSuburb.server_modified || existingSuburb.client_modified);
+      const ageMs = Date.now() - modDate.getTime();
+      const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
+
+      if (ageMs < threeMonthsMs) {
+        // Suburb report is fresh — try to load cached data JSON
+        console.log(`   📋 Suburb report is fresh (${Math.round(ageMs / 86400000)} days old) — loading cached data`);
+        const suburbDataPath = makeSuburbDataPath(suburb);
+        const cachedJson = await dropboxDownload(suburbDataPath);
+        if (cachedJson) {
+          try {
+            cachedSuburbData = JSON.parse(cachedJson.toString());
+            suburbIsFresh = true;
+            console.log(`   ✅ Loaded cached suburb data from ${suburbDataPath}`);
+          } catch (e) {
+            console.log(`   ⚠️ Cached suburb JSON is corrupt — will regenerate`);
+          }
+        } else {
+          console.log(`   ⚠️ No cached suburb data JSON found — will regenerate`);
+        }
+      } else {
+        // Suburb report is stale — delete and regenerate
+        console.log(`   🗑️  Suburb report is stale (${Math.round(ageMs / 86400000)} days old) — deleting`);
+        await dropboxDelete(suburbPath);
+        await dropboxDelete(makeSuburbDataPath(suburb));
+      }
+    } else {
+      console.log(`   📄 No existing suburb report for ${suburb} — will generate`);
+    }
+
+    // ════════════════════════════════════════════
+    // STEP 3: Parallel scraping
+    // ════════════════════════════════════════════
+    console.log(`   Scraping: suburb=${suburb}, state=${state}, postcode=${postcode}`);
+
+    const scraperPromises = [];
+
+    // 1. Suburb data — skip entirely if we have cached data
+    if (!suburbIsFresh) {
+      const needSuburbText = !input.cityParagraphs || !input.futureProspectsParagraphs;
+      if (needSuburbText) {
+        scraperPromises.push(
+          callScraper("/api/suburb", { suburb, state, postcode })
+            .then(r => { console.log(`   ✅ Suburb data: ${r.success ? "OK" : "FAILED"}`); return r; })
+        );
+      } else {
+        scraperPromises.push(Promise.resolve({ success: true, data: {} }));
+      }
+    } else {
+      console.log(`   ⏩ Skipping suburb scrape entirely (using cached data)`);
+      scraperPromises.push(Promise.resolve({ success: true, data: cachedSuburbData }));
+    }
+
+    // 2. Property data (CoreLogic) — skip if key fields provided
+    const needProperty = !input.bedrooms || !input.bathrooms;
+    if (needProperty) {
+      scraperPromises.push(
+        callScraper("/api/property", { address: input.address })
+          .then(r => { console.log(`   ✅ Property data: ${r.success ? "OK" : "FAILED"}`); return r; })
+      );
+    } else {
+      scraperPromises.push(Promise.resolve({ success: true, data: {} }));
+    }
+
+    // 3. Comparables (Domain.com.au) — only if addresses provided
+    if (input.comparableAddresses?.length) {
+      scraperPromises.push(
+        callScraper("/api/domain-comparables", { addresses: input.comparableAddresses })
+          .then(r => { console.log(`   ✅ Comparables (Domain): ${r.success ? "OK" : "FAILED"}`); return r; })
+      );
+    } else {
+      scraperPromises.push(Promise.resolve(null));
+    }
+
+    const [suburbScrapeResult, propertyResult, comparablesResult] = await Promise.all(scraperPromises);
+
+    if (suburbScrapeResult && !suburbScrapeResult.success) errors.push({ source: "suburb", error: suburbScrapeResult.error });
+    if (propertyResult && !propertyResult.success) errors.push({ source: "property", error: propertyResult.error });
+    if (comparablesResult && !comparablesResult.success) errors.push({ source: "comparables", error: comparablesResult.error });
+
+    // 3b. Backfill missing comparable details from CoreLogic
+    if (comparablesResult?.success && comparablesResult.data?.length) {
+      const incomplete = comparablesResult.data.filter(c => c.success && (!c.bedrooms || !c.bathrooms));
+      if (incomplete.length) {
+        console.log(`   🔍 Backfilling ${incomplete.length} comparable(s) from CoreLogic...`);
+        const backfillAddresses = incomplete.map(c => c.address);
+        try {
+          const clResult = await callScraper("/api/comparables", { addresses: backfillAddresses });
+          if (clResult?.success && clResult.data?.length) {
+            for (const clComp of clResult.data) {
+              if (!clComp.success) continue;
+              // Find matching Domain comp and fill gaps
+              const domComp = comparablesResult.data.find(d =>
+                d.success && d.address && clComp.address &&
+                d.address.replace(/\s+/g, " ").toLowerCase().includes(clComp.address.replace(/\s+/g, " ").toLowerCase().split(",")[0])
+              );
+              if (domComp) {
+                if (!domComp.bedrooms && clComp.bedrooms) domComp.bedrooms = clComp.bedrooms;
+                if (!domComp.bathrooms && clComp.bathrooms) domComp.bathrooms = clComp.bathrooms;
+                if (!domComp.car_spaces && clComp.car_spaces) domComp.car_spaces = clComp.car_spaces;
+                if (!domComp.land_size && clComp.land_size) domComp.land_size = clComp.land_size;
+                if (!domComp.sold_price && clComp.sold_price) domComp.sold_price = clComp.sold_price;
+                if (!domComp.sold_date && clComp.sold_date) domComp.sold_date = clComp.sold_date;
+                console.log(`   ✅ Backfilled: ${domComp.address} — ${domComp.bedrooms || "?"}bed/${domComp.bathrooms || "?"}bath`);
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`   ⚠️ CoreLogic backfill failed: ${e.message}`);
+        }
+      }
+    }
+
+    // 4. Google Places amenities
+    let placesAmenities = [];
+    if (!input.amenities?.length && GOOGLE_API_KEY) {
+      console.log(`   🗺️  Fetching nearby amenities via Google Places...`);
+      placesAmenities = await fetchNearbyAmenities(input.address).catch(err => {
+        errors.push({ source: "google_places", error: err.message });
+        return [];
+      });
+    }
+
+    // ════════════════════════════════════════════
+    // STEP 4: Map data and build reports
+    // ════════════════════════════════════════════
+    const reportData = mapScraperToReport(input, suburbScrapeResult, propertyResult, comparablesResult, placesAmenities);
+
+    // ════════════════════════════════════════════
+    // STEP 5: Suburb report — generate/update if needed, save data cache
+    // ════════════════════════════════════════════
+    if (!suburbIsFresh) {
+      console.log(`   📄 Generating suburb report for ${suburb}...`);
+      const suburbHtml = buildSuburbReportHtml(reportData);
+      const suburbPdf = await generatePdfBuffer(suburbHtml);
+      await dropboxUpload(suburbPath, suburbPdf);
+
+      // Save the suburb data as JSON for future reuse (skips both DSR + Claude next time)
+      const suburbCacheData = suburbScrapeResult?.data || {};
+      const suburbDataPath = makeSuburbDataPath(suburb);
+      await dropboxUpload(suburbDataPath, Buffer.from(JSON.stringify(suburbCacheData, null, 2)));
+      console.log(`   ✅ Suburb report + data cache uploaded: ${suburbPath}`);
+    }
+
+    // ════════════════════════════════════════════
+    // STEP 6: Generate property report (full = suburb + property + cashflow)
+    // ════════════════════════════════════════════
+    console.log(`   📄 Building property report PDF...`);
+    const html = buildPropertyReportHtml(reportData);
+    const propertyPdf = await generatePdfBuffer(html);
+    await dropboxUpload(propertyPath, propertyPdf);
+
+    const propertyLink = await dropboxGetSharedLink(propertyPath);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ Auto-report complete in ${elapsed}s: ${propertyPath}`);
+
+    res.json({
+      success: true,
+      message: `✅ Property report uploaded: ${propertyPath}`,
+      path: propertyPath,
+      dropboxLink: propertyLink || undefined,
+      suburbReportPath: suburbPath,
+      suburbReportReused: !!suburbIsFresh,
+      elapsed: elapsed + "s",
+      errors: errors.length ? errors : undefined,
+      debug: process.env.DEBUG === "true" ? reportData : undefined,
+    });
+  } catch (err) {
+    console.error("❌ Auto-report error:", err);
+    res.status(500).json({ error: err.message, errors });
+  }
+});
+
+// ── AUTO-SUBURB ENDPOINT ──
+app.post("/auto-suburb", async (req, res) => {
+  const input = req.body;
+
+  if (!input.suburb && !input.address) {
+    return res.status(400).json({ error: "Missing required field: suburb or address" });
+  }
+
+  const parsed = input.address ? parseAddress(input.address) : {};
+  const suburb = input.suburb || parsed.suburb;
+  const state = input.state || parsed.state;
+  const postcode = input.postcode || parsed.postcode;
+
+  if (!suburb || !state || !postcode) {
+    return res.status(400).json({ error: "Could not determine suburb/state/postcode. Please provide them explicitly." });
+  }
+
+  console.log(`\n📍 Auto-suburb for: ${suburb} ${state} ${postcode}`);
+
+  try {
+    // Check if suburb report already exists and is fresh
+    const suburbPath = makeSuburbPath(suburb);
+    const existing = await dropboxGetMetadata(suburbPath);
+
+    if (existing && !input.forceRegenerate) {
+      const modDate = new Date(existing.server_modified || existing.client_modified);
+      const ageMs = Date.now() - modDate.getTime();
+      const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
+
+      if (ageMs < threeMonthsMs) {
+        const link = await dropboxGetSharedLink(suburbPath);
+        console.log(`   ⏩ Suburb report already exists and is fresh (${Math.round(ageMs / 86400000)} days old)`);
+        return res.json({
+          success: true,
+          exists: true,
+          message: `Suburb report already exists: ${existing.name} (${Math.round(ageMs / 86400000)} days old)`,
+          path: suburbPath,
+          dropboxLink: link || undefined,
+          lastModified: existing.server_modified || existing.client_modified,
+        });
+      } else {
+        console.log(`   🗑️  Suburb report is stale (${Math.round(ageMs / 86400000)} days old) — regenerating`);
+        await dropboxDelete(suburbPath);
+      }
+    }
+
+    const suburbResult = await callScraper("/api/suburb", { suburb, state, postcode });
+    const sub = suburbResult?.data || {};
+
+    function textToParagraphs(text) {
+      if (!text) return [];
+      if (Array.isArray(text)) return text;
+      return text.split(/\n\s*\n/).map(s => s.trim()).filter(s => s);
+    }
+
+    let highlights = input.cityHighlights || [];
+    if (!highlights.length && sub.highlights) {
+      if (typeof sub.highlights === "string") {
+        highlights = sub.highlights.split(/\n|•|–/).map(s => s.trim()).filter(s => s);
+      } else if (Array.isArray(sub.highlights)) {
+        highlights = sub.highlights;
+      }
+    }
+
+    const reportData = {
+      cityName: input.cityName || sub.city_name || suburb,
+      stateName: input.stateName || STATE_NAMES[state] || state,
+      cityHighlights: highlights,
+      cityParagraphs: input.cityParagraphs || textToParagraphs(sub.suburb_overview),
+      futureProspectsParagraphs: input.futureProspectsParagraphs || textToParagraphs(sub.future_prospects),
+      suburbName: suburb,
+      suburbParagraphs: input.suburbParagraphs || textToParagraphs(sub.suburb_demographics),
+      insights: input.insights || {
+        percentageRenters: sub.renters_percentage ? sub.renters_percentage + " (Ideally under 40% | DSR Data)" : "",
+        daysOnMarket: sub.days_on_market ? sub.days_on_market + " days (Recommended under 60 days | DSR Data)" : "",
+        vacancyRate: sub.vacancy_rate ? sub.vacancy_rate + " (Ideal under 1.5% | " + (sub.vacancy_source || "DSR Data") + ")" : "",
+        vendorDiscounting: sub.vendor_discounting && sub.vendor_discounting !== "0.00%" && sub.vendor_discounting !== "0%" ? sub.vendor_discounting + " (Ideal under 5% plus | DSR Data)" : "",
+        stockOnMarket: sub.stock_on_market ? sub.stock_on_market + " (Ideal under 2% | DSR Data)" : "",
+      },
+      reportName: input.reportName || suburb + "_Suburb_Report",
+    };
+
+    const html = buildSuburbReportHtml(reportData);
+    const suburbPdf = await generatePdfBuffer(html);
+    await dropboxUpload(suburbPath, suburbPdf);
+
+    // Save suburb data as JSON cache for reuse by property reports
+    const suburbDataPath = makeSuburbDataPath(suburb);
+    await dropboxUpload(suburbDataPath, Buffer.from(JSON.stringify(sub, null, 2)));
+    console.log(`   💾 Suburb data cache saved: ${suburbDataPath}`);
+
+    const link = await dropboxGetSharedLink(suburbPath);
+    console.log(`✅ Auto-suburb report uploaded: ${suburbPath}`);
+    res.json({
+      success: true,
+      message: `✅ Suburb report uploaded: ${suburbPath}`,
+      path: suburbPath,
+      dropboxLink: link || undefined,
+    });
+  } catch (err) {
+    console.error("❌ Auto-suburb error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`PropWealth Report Generator running on port ${PORT}`);
+  console.log(`   Scraper API: ${SCRAPER_BASE}`);
+  console.log(`   Auto-report: POST /auto-report { address: "..." }`);
+  console.log(`   Auto-suburb: POST /auto-suburb { suburb, state, postcode }`);
+});
