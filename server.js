@@ -195,7 +195,7 @@ async function dropboxDownload(filePath) {
   } catch { return null; }
 }
 
-const folders = { property: "/Property Reports", suburb: "/Suburb Reports", other: "/Other Reports" };
+const folders = { property: "/Properties Reports/Property Reports (Auto)", suburb: "/Properties Reports/Suburb Reports (Auto)", other: "/Other Reports" };
 
 // ─── LOGO ───
 let LOGO_BASE64 = "";
@@ -322,13 +322,29 @@ function calcStampDuty(price, state) {
   return p * 0.04;
 }
 
-// ─── MORTGAGE REGISTRATION FEE (state-based) ───
-function calcMortgageFee(state) {
+// ─── MORTGAGE/TRANSFER REGISTRATION FEE (state-based) ───
+// Formula: transfer_fee × 2 + mortgage_registration, rounded up to nearest $100
+// Uses current FY 2025/26 flat registration fees for standard single-title transfers
+// For states with price-dependent transfer fees (QLD, VIC, SA), uses typical amounts
+// Users can override via cashflow inputs if needed
+function calcMortgageFee(state, price) {
+  const s = (state || "NSW").toUpperCase();
+
+  //                    [transfer_fee, mortgage_reg]
   const fees = {
-    NSW: 154.60, VIC: 119.70, QLD: 195, WA: 189.40,
-    SA: 177, TAS: 141.29, ACT: 160, NT: 156,
+    NSW: [175.70, 175.70],   // $175.70 × 2 + $175.70 = $527.10 → $600
+    VIC: [128.50, 128.50],   // $128.50 × 2 + $128.50 = $385.50 → $400
+    QLD: [238.14, 238.14],   // $238.14 × 2 + $238.14 = $714.42 → $800 (base, excl price surcharge)
+    WA:  [203.00, 203.00],   // $203.00 × 2 + $203.00 = $609.00 → $700
+    SA:  [187.00, 187.00],   // $187.00 × 2 + $187.00 = $561.00 → $600
+    TAS: [217.00, 152.19],   // $217.00 × 2 + $152.19 = $586.19 → $600
+    ACT: [166.00, 166.00],   // $166.00 × 2 + $166.00 = $498.00 → $500
+    NT:  [152.00, 165.00],   // $152.00 × 2 + $165.00 = $469.00 → $500
   };
-  return fees[(state || "NSW").toUpperCase()] || 160;
+
+  const [tf, mr] = fees[s] || [175, 175];
+  const total = tf * 2 + mr;
+  return Math.ceil(total / 100) * 100;
 }
 
 // ─── GOOGLE PLACES: NEARBY AMENITIES ───
@@ -459,7 +475,7 @@ function calculateCashflow(input, state, isSMSF) {
   const lvrPct = (1 - depositPct) * 100;
 
   const stampDuty = input.stampDuty != null ? num(input.stampDuty) : calcStampDuty(price, st);
-  const mortgageFee = input.mortgageFee != null ? num(input.mortgageFee) : calcMortgageFee(st);
+  const mortgageFee = input.mortgageFee != null ? num(input.mortgageFee) : calcMortgageFee(st, price);
   const lmi = input.lmi != null ? num(input.lmi) : calcLMI(depositPct, loan);
   const legals = input.legals != null ? num(input.legals) : D.legals;
   const pestReport = input.pestReport != null ? num(input.pestReport) : D.pestReport;
@@ -654,9 +670,13 @@ function buildCashflowPage(title, cf, propertyAddress, state) {
       <td class="cf-h-lbl">Estimated Stamp Duty</td><td class="cf-h-val">$ ${cf.stampDuty}</td>
     </tr>
     <tr>
-      <td class="cf-h-lbl">${cf.lmi?"Estimated LMI":"Mortgage/Transfer/Fee"}</td><td class="cf-h-val">${cf.lmi?"$ "+cf.lmi:"$ "+cf.mortgageFee}</td>
+      <td class="cf-h-lbl">Est Mortgage/Transfer Fee</td><td class="cf-h-val">$ ${cf.mortgageFee}</td>
       <td class="cf-h-lbl">Total Funds Required</td><td class="cf-h-val cf-h-total">$ ${cf.totalFundsRequired}</td>
-    </tr>
+    </tr>${cf.lmi?`
+    <tr>
+      <td class="cf-h-lbl">Estimated LMI</td><td class="cf-h-val">$ ${cf.lmi}</td>
+      <td></td><td></td>
+    </tr>`:""}
     <tr>
       <td class="cf-h-lbl">Estimated Legals</td><td class="cf-h-val">$ ${cf.legals}</td>
       <td class="cf-h-lbl">Pest &amp; Building Report</td><td class="cf-h-val">$ ${cf.pestReport}</td>
@@ -752,16 +772,27 @@ function makeSafeName(name) {
   return name.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
 }
 
-function makePropertyPath(address) {
-  return `${folders.property}/${makeSafeName(address)}.pdf`;
+function makeTimestamp() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}_${String(d.getHours()).padStart(2,"0")}${String(d.getMinutes()).padStart(2,"0")}`;
 }
 
-function makeSuburbPath(suburb) {
-  return `${folders.suburb}/${makeSafeName(suburb)}_Suburb_Report.pdf`;
+function makePropertyPath(address, state, postcode) {
+  const ts = makeTimestamp();
+  const parts = [makeSafeName(address), state, postcode, ts].filter(Boolean);
+  return `${folders.property}/${parts.join("_")}.pdf`;
 }
 
-function makeSuburbDataPath(suburb) {
-  return `${folders.suburb}/${makeSafeName(suburb)}_Suburb_Data.json`;
+function makeSuburbPath(suburb, state, postcode) {
+  const ts = makeTimestamp();
+  const parts = [makeSafeName(suburb), state, postcode, ts].filter(Boolean);
+  return `${folders.suburb}/${parts.join("_")}_Suburb_Report.pdf`;
+}
+
+// No timestamp — this is a cache file that needs to be found on subsequent runs
+function makeSuburbDataPath(suburb, state, postcode) {
+  const parts = [makeSafeName(suburb), state, postcode].filter(Boolean);
+  return `${folders.suburb}/${parts.join("_")}_Suburb_Data.json`;
 }
 
 async function generatePdfBuffer(html) {
@@ -1185,42 +1216,48 @@ app.post("/auto-report", async (req, res) => {
     // ════════════════════════════════════════════
     // STEP 1: Check if property report already exists
     // ════════════════════════════════════════════
-    const propertyPath = makePropertyPath(input.reportName || parsed.street + "_" + suburb);
-    const existingProperty = await dropboxGetMetadata(propertyPath);
+    const propertyNameBase = makeSafeName(input.reportName || parsed.street + "_" + suburb);
+    const propertyPrefix = [propertyNameBase, state, postcode].filter(Boolean).join("_");
+    const propertyPath = makePropertyPath(input.reportName || parsed.street + "_" + suburb, state, postcode);
 
-    if (existingProperty && !input.forceRegenerate) {
-      const link = await dropboxGetSharedLink(propertyPath);
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`   ⏩ Property report already exists: ${propertyPath}`);
-      return res.json({
-        success: true,
-        exists: true,
-        message: `Property report already exists: ${existingProperty.name}`,
-        path: propertyPath,
-        dropboxLink: link || undefined,
-        lastModified: existingProperty.server_modified || existingProperty.client_modified,
-        elapsed: elapsed + "s",
-      });
+    if (!input.forceRegenerate) {
+      const existing = await dropboxListFolder(folders.property, propertyPrefix);
+      if (existing.length > 0) {
+        // Return the most recent match
+        const latest = existing.sort((a, b) => (b.name || "").localeCompare(a.name || ""))[0];
+        const link = await dropboxGetSharedLink(latest.path_display || latest.path_lower);
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`   ⏩ Property report already exists: ${latest.name}`);
+        return res.json({
+          success: true,
+          exists: true,
+          message: `Property report already exists: ${latest.name}`,
+          path: latest.path_display || latest.path_lower,
+          dropboxLink: link || undefined,
+          lastModified: latest.server_modified || latest.client_modified,
+          elapsed: elapsed + "s",
+        });
+      }
     }
 
     // ════════════════════════════════════════════
     // STEP 2: Check suburb report cache
     // ════════════════════════════════════════════
-    const suburbPath = makeSuburbPath(suburb);
-    const existingSuburb = await dropboxGetMetadata(suburbPath);
+    const suburbPath = makeSuburbPath(suburb, state, postcode);
+    const suburbDataPath = makeSuburbDataPath(suburb, state, postcode);
+    const existingSuburbData = await dropboxGetMetadata(suburbDataPath);
     let suburbResult = null;
     let suburbIsFresh = false;
     let cachedSuburbData = null;
 
-    if (existingSuburb) {
-      const modDate = new Date(existingSuburb.server_modified || existingSuburb.client_modified);
+    if (existingSuburbData) {
+      const modDate = new Date(existingSuburbData.server_modified || existingSuburbData.client_modified);
       const ageMs = Date.now() - modDate.getTime();
       const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
 
       if (ageMs < threeMonthsMs) {
-        // Suburb report is fresh — try to load cached data JSON
-        console.log(`   📋 Suburb report is fresh (${Math.round(ageMs / 86400000)} days old) — loading cached data`);
-        const suburbDataPath = makeSuburbDataPath(suburb);
+        // Suburb data is fresh — load cached JSON
+        console.log(`   📋 Suburb data cache is fresh (${Math.round(ageMs / 86400000)} days old) — loading`);
         const cachedJson = await dropboxDownload(suburbDataPath);
         if (cachedJson) {
           try {
@@ -1231,16 +1268,15 @@ app.post("/auto-report", async (req, res) => {
             console.log(`   ⚠️ Cached suburb JSON is corrupt — will regenerate`);
           }
         } else {
-          console.log(`   ⚠️ No cached suburb data JSON found — will regenerate`);
+          console.log(`   ⚠️ Could not download suburb data JSON — will regenerate`);
         }
       } else {
-        // Suburb report is stale — delete and regenerate
-        console.log(`   🗑️  Suburb report is stale (${Math.round(ageMs / 86400000)} days old) — deleting`);
-        await dropboxDelete(suburbPath);
-        await dropboxDelete(makeSuburbDataPath(suburb));
+        // Suburb data is stale — delete and regenerate
+        console.log(`   🗑️  Suburb data is stale (${Math.round(ageMs / 86400000)} days old) — deleting`);
+        await dropboxDelete(suburbDataPath);
       }
     } else {
-      console.log(`   📄 No existing suburb report for ${suburb} — will generate`);
+      console.log(`   📄 No cached suburb data for ${suburb} — will generate`);
     }
 
     // ════════════════════════════════════════════
@@ -1352,7 +1388,7 @@ app.post("/auto-report", async (req, res) => {
 
       // Save the suburb data as JSON for future reuse (skips both DSR + Claude next time)
       const suburbCacheData = suburbScrapeResult?.data || {};
-      const suburbDataPath = makeSuburbDataPath(suburb);
+      const suburbDataPath = makeSuburbDataPath(suburb, state, postcode);
       await dropboxUpload(suburbDataPath, Buffer.from(JSON.stringify(suburbCacheData, null, 2)));
       console.log(`   ✅ Suburb report + data cache uploaded: ${suburbPath}`);
     }
@@ -1407,7 +1443,7 @@ app.post("/auto-suburb", async (req, res) => {
 
   try {
     // Check if suburb report already exists and is fresh
-    const suburbPath = makeSuburbPath(suburb);
+    const suburbPath = makeSuburbPath(suburb, state, postcode);
     const existing = await dropboxGetMetadata(suburbPath);
 
     if (existing && !input.forceRegenerate) {
@@ -1473,7 +1509,7 @@ app.post("/auto-suburb", async (req, res) => {
     await dropboxUpload(suburbPath, suburbPdf);
 
     // Save suburb data as JSON cache for reuse by property reports
-    const suburbDataPath = makeSuburbDataPath(suburb);
+    const suburbDataPath = makeSuburbDataPath(suburb, state, postcode);
     await dropboxUpload(suburbDataPath, Buffer.from(JSON.stringify(sub, null, 2)));
     console.log(`   💾 Suburb data cache saved: ${suburbDataPath}`);
 

@@ -1,219 +1,531 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PropWealth Report Generator</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f5f5f5;color:#222}
-    .header{background:#fff;border-bottom:3px solid #d63384;padding:15px 30px}.header h1{font-size:20px;color:#333}
-    .tabs{display:flex;background:#fff;border-bottom:1px solid #ddd;padding:0 30px}
-    .tab{padding:12px 24px;cursor:pointer;border-bottom:3px solid transparent;font-weight:600;color:#666;transition:all .2s}.tab:hover{color:#d63384}.tab.active{color:#d63384;border-bottom-color:#d63384}
-    .container{max-width:900px;margin:20px auto;padding:0 20px}.panel{display:none}.panel.active{display:block}
-    .card{background:#fff;border-radius:8px;padding:25px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
-    .card h2{font-size:16px;color:#d63384;margin-bottom:15px;padding-bottom:8px;border-bottom:1px solid #eee}
-    textarea{width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:'Consolas','Courier New',monospace;resize:vertical;line-height:1.4}
-    textarea:focus{outline:none;border-color:#d63384;box-shadow:0 0 0 2px rgba(214,51,132,.15)}
-    .json-input{min-height:500px}
-    .btn{display:inline-block;border:none;padding:10px 22px;font-size:14px;font-weight:600;border-radius:6px;cursor:pointer;transition:background .2s;margin-right:8px;margin-top:12px}
-    .btn-primary{background:#d63384;color:#fff}.btn-primary:hover{background:#b52570}
-    .btn-secondary{background:#6c757d;color:#fff}.btn-secondary:hover{background:#555}
-    .status{margin-top:15px;padding:12px;border-radius:6px;font-weight:600;display:none}
-    .status.success{display:block;background:#d4edda;color:#155724}.status.error{display:block;background:#f8d7da;color:#721c24}.status.loading{display:block;background:#fff3cd;color:#856404}
-    .help{font-size:12px;color:#888;margin-top:8px;line-height:1.5}
-    details{margin-top:12px}summary{cursor:pointer;color:#d63384;font-weight:600;font-size:13px}
-    .example-json{max-height:400px;min-height:200px;font-size:11px;margin-top:8px;background:#f9f9f9}
-    select,input[type=text]{padding:8px;border:1px solid #ccc;border-radius:4px;font-size:14px;margin-bottom:12px}
-    label{font-weight:600;font-size:13px;display:block;margin-bottom:4px}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PropWealth — Report Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --pw-pink:#E84C8A; --pw-pink-light:#fdf2f8; --pw-pink-hover:#d63f7a; --pw-dark:#1a1a2e; --pw-g7:#444; --pw-g4:#999; --pw-g2:#e5e5e5; --pw-g1:#f5f5f7; --pw-w:#fff; --pw-green:#22c55e; --pw-red:#ef4444; --radius:12px; --shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04); }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--pw-g1);color:var(--pw-dark);min-height:100vh}
+
+  /* Header */
+  .header{background:var(--pw-w);border-bottom:1px solid var(--pw-g2);padding:16px 32px;display:flex;align-items:center;gap:16px}
+  .header-logo{height:44px}
+  .header-divider{width:1px;height:28px;background:var(--pw-g2)}
+  .header-title{font-family:'Outfit',sans-serif;font-size:15px;font-weight:500;color:var(--pw-g4);letter-spacing:.5px}
+
+  /* Tabs */
+  .tabs{max-width:820px;margin:32px auto 0;padding:0 24px;display:flex;gap:4px}
+  .tab{padding:10px 20px;border-radius:8px 8px 0 0;background:var(--pw-w);border:1px solid var(--pw-g2);border-bottom:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--pw-g4);cursor:pointer;transition:all .15s;position:relative;bottom:-1px}
+  .tab.active{color:var(--pw-pink);background:var(--pw-w);border-color:var(--pw-g2);z-index:2}
+  .tab:not(.active):hover{color:var(--pw-g7)}
+
+  /* Main */
+  .main{max-width:820px;margin:0 auto 48px;padding:0 24px}
+  .tab-panel{display:none;background:var(--pw-w);border:1px solid var(--pw-g2);border-radius:0 var(--radius) var(--radius) var(--radius);padding:32px;box-shadow:var(--shadow)}
+  .tab-panel.active{display:block}
+
+  .panel-title{font-family:'Outfit',sans-serif;font-size:20px;font-weight:700;color:var(--pw-dark);margin-bottom:4px}
+  .panel-subtitle{font-size:13px;color:var(--pw-g4);margin-bottom:24px}
+
+  /* Sections */
+  .section{margin-bottom:24px}
+  .section-header{font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--pw-pink);margin-bottom:14px;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+  .section-header .toggle{font-size:10px;transition:transform .2s}
+  .section-header .toggle.open{transform:rotate(90deg)}
+
+  /* Form */
+  .form-row{display:flex;gap:12px;margin-bottom:14px}
+  .form-row > *{flex:1}
+  .form-group{margin-bottom:14px}
+  .form-label{display:block;font-size:12px;font-weight:600;color:var(--pw-g7);margin-bottom:4px}
+  .form-hint{font-size:11px;color:var(--pw-g4);margin-bottom:4px}
+  .form-input,.form-select{
+    width:100%;padding:10px 12px;border:1.5px solid var(--pw-g2);border-radius:8px;
+    font-family:'DM Sans',sans-serif;font-size:13px;color:var(--pw-dark);outline:none;background:var(--pw-w);transition:border-color .2s,box-shadow .2s;
+  }
+  .form-input:focus,.form-select:focus{border-color:var(--pw-pink);box-shadow:0 0 0 3px rgba(232,76,138,.1)}
+  .form-input::placeholder{color:#bbb}
+  .form-input.sm{padding:8px 10px;font-size:12px}
+
+  /* Comparables */
+  .comp-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .comp-row .form-input{flex:1}
+  .comp-num{font-size:11px;font-weight:600;color:var(--pw-g4);width:18px;text-align:center;flex-shrink:0}
+  .btn-remove{width:28px;height:28px;border-radius:6px;border:none;background:transparent;color:var(--pw-g4);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
+  .btn-remove:hover{background:#fef2f2;color:var(--pw-red)}
+  .btn-add{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border:1.5px dashed var(--pw-g2);border-radius:8px;background:transparent;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:var(--pw-g4);cursor:pointer;transition:all .2s}
+  .btn-add:hover{border-color:var(--pw-pink);color:var(--pw-pink);background:var(--pw-pink-light)}
+
+  /* Checkbox */
+  .options-row{display:flex;gap:20px;flex-wrap:wrap}
+  .checkbox-label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--pw-g7);cursor:pointer;user-select:none}
+  .checkbox-label input{accent-color:var(--pw-pink);width:15px;height:15px}
+
+  /* Collapsible */
+  .collapsible{overflow:hidden;transition:max-height .3s ease}
+  .collapsible.collapsed{max-height:0 !important}
+
+  /* Button */
+  .btn-generate{width:100%;padding:13px 24px;background:var(--pw-pink);color:var(--pw-w);border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px}
+  .btn-generate:hover:not(:disabled){background:var(--pw-pink-hover);box-shadow:0 4px 16px rgba(232,76,138,.3);transform:translateY(-1px)}
+  .btn-generate:disabled{opacity:.7;cursor:not-allowed;transform:none}
+
+  /* Status */
+  .status-card{background:var(--pw-g1);border-radius:10px;padding:20px;margin-top:20px;display:none}
+  .status-card.visible{display:block}
+  .status-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .status-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .status-icon.loading{background:var(--pw-pink-light);color:var(--pw-pink);animation:pulse 1.5s infinite}
+  .status-icon.success{background:#dcfce7;color:var(--pw-green)}
+  .status-icon.error{background:#fef2f2;color:var(--pw-red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .status-title{font-family:'Outfit',sans-serif;font-weight:600;font-size:14px}
+  .status-sub{font-size:12px;color:var(--pw-g4)}
+  .status-log{background:var(--pw-w);border-radius:8px;padding:12px;font-family:'SF Mono','Fira Code',monospace;font-size:11px;line-height:1.7;color:var(--pw-g7);max-height:180px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;border:1px solid var(--pw-g2)}
+  .status-actions{margin-top:12px;display:flex;gap:10px}
+  .btn-link{display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;text-decoration:none;transition:all .15s;cursor:pointer;border:none}
+  .btn-link.primary{background:var(--pw-pink);color:var(--pw-w)}
+  .btn-link.primary:hover{background:var(--pw-pink-hover)}
+  .btn-link.secondary{background:var(--pw-w);color:var(--pw-g7);border:1px solid var(--pw-g2)}
+  .btn-link.secondary:hover{background:var(--pw-g1)}
+
+  /* History */
+  .history{margin-top:24px}
+  .history-list{list-style:none}
+  .history-item{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--pw-g2)}
+  .history-item:last-child{border-bottom:none}
+  .history-addr{font-weight:500;font-size:13px}
+  .history-meta{font-size:11px;color:var(--pw-g4)}
+  .history-badge{font-size:10px;font-weight:600;padding:3px 10px;border-radius:20px;text-decoration:none}
+  .history-badge.success{background:#dcfce7;color:#166534}
+  .history-badge.error{background:#fef2f2;color:#991b1b}
+
+  /* Manual panel */
+  .manual-section{margin-bottom:20px;padding:20px;background:var(--pw-g1);border-radius:10px}
+  .manual-section h3{font-family:'Outfit',sans-serif;font-size:14px;font-weight:600;margin-bottom:4px}
+  .manual-section p{font-size:12px;color:var(--pw-g4);margin-bottom:12px}
+  .manual-section textarea{width:100%;height:200px;padding:12px;border:1.5px solid var(--pw-g2);border-radius:8px;font-family:'SF Mono','Fira Code',monospace;font-size:11px;resize:vertical;outline:none;background:var(--pw-w)}
+  .manual-section textarea:focus{border-color:var(--pw-pink)}
+  .btn-sm{padding:8px 16px;font-size:12px;border-radius:6px;border:none;background:var(--pw-pink);color:var(--pw-w);font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;transition:all .15s;margin-top:8px}
+  .btn-sm:hover{background:var(--pw-pink-hover)}
+  .btn-sm:disabled{opacity:.6;cursor:not-allowed}
+  .manual-result{margin-top:8px;font-size:12px;padding:8px 12px;border-radius:6px}
+  .manual-result.ok{background:#dcfce7;color:#166534}
+  .manual-result.err{background:#fef2f2;color:#991b1b}
+
+  .spinner{width:16px;height:16px;border:2.5px solid rgba(255,255,255,.3);border-top-color:var(--pw-w);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  @media(max-width:600px){.form-row{flex-direction:column}.tabs{gap:2px}.tab{padding:8px 12px;font-size:12px}.tab-panel{padding:24px 16px}}
+</style>
 </head>
 <body>
-<div class="header"><h1>PropWealth Report Generator</h1></div>
+
+<div class="header">
+  <svg class="header-logo" viewBox="0 0 200 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M5 38L20 10L35 38H28L20 22L12 38H5Z" fill="#E84C8A"/>
+    <path d="M15 38L25 18L35 38H28L25 32L22 38H15Z" fill="#F472B6" opacity="0.7"/>
+    <text x="42" y="30" font-family="Outfit,sans-serif" font-size="22" font-weight="700" fill="#1a1a2e">PropWealth</text>
+  </svg>
+  <div class="header-divider"></div>
+  <span class="header-title">REPORT GENERATOR</span>
+</div>
+
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('property')">Property Report</div>
-  <div class="tab" onclick="switchTab('suburb')">Suburb Report</div>
-  <div class="tab" onclick="switchTab('legacy')">Raw HTML (Legacy)</div>
+  <div class="tab active" onclick="switchTab('auto')">Auto Report</div>
+  <div class="tab" onclick="switchTab('manual')">Manual / JSON</div>
 </div>
-<div class="container">
 
-<!-- PROPERTY -->
-<div id="panel-property" class="panel active">
-  <div class="card">
-    <h2>Property Report — Paste JSON</h2>
-    <p class="help">Paste the property report JSON and click Generate. The server auto-calculates all cashflow values from just a few key inputs. See the example for the expected format.</p>
-    <textarea id="json-property" class="json-input" placeholder="Paste property report JSON here..."></textarea>
-    <div>
-      <button class="btn btn-primary" onclick="submitReport('property')">Generate Property Report &amp; Upload</button>
-      <button class="btn btn-secondary" onclick="loadExample('property')">Load Example</button>
+<div class="main">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- TAB 1: AUTO REPORT                         -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="tab-panel active" id="tab-auto">
+  <div class="panel-title">Generate Property Report</div>
+  <div class="panel-subtitle">Enter the property address — suburb data, comparables, and cashflow are scraped automatically.</div>
+
+  <!-- Property Address -->
+  <div class="section">
+    <div class="section-header">Property Details</div>
+    <div class="form-group">
+      <label class="form-label">Property Address *</label>
+      <input type="text" class="form-input" id="address" placeholder="e.g. 3 Parsons Circuit, Kellyville, NSW 2155">
     </div>
-    <div id="status-property" class="status"></div>
-    <details><summary>View Example JSON (with auto-calculated cashflow)</summary>
-      <textarea class="example-json" readonly id="example-property"></textarea>
-    </details>
-  </div>
-</div>
-
-<!-- SUBURB -->
-<div id="panel-suburb" class="panel">
-  <div class="card">
-    <h2>Suburb Report — Paste JSON</h2>
-    <p class="help">Paste suburb report JSON (pages 1-2 only: city overview + suburb section).</p>
-    <textarea id="json-suburb" class="json-input" placeholder="Paste suburb report JSON here..."></textarea>
-    <div>
-      <button class="btn btn-primary" onclick="submitReport('suburb')">Generate Suburb Report &amp; Upload</button>
-      <button class="btn btn-secondary" onclick="loadExample('suburb')">Load Example</button>
+    <div class="form-group">
+      <label class="form-label">Comparable Addresses</label>
+      <div class="form-hint">Recent nearby sales to include in the report</div>
+      <div id="compsList">
+        <div class="comp-row"><span class="comp-num">1</span><input type="text" class="form-input comp-input" placeholder="e.g. 11 Parsons Circuit, Kellyville, NSW 2155"><button class="btn-remove" onclick="removeComp(this)">×</button></div>
+      </div>
+      <button class="btn-add" onclick="addComp()">+ Add comparable</button>
     </div>
-    <div id="status-suburb" class="status"></div>
-    <details><summary>View Example JSON</summary>
-      <textarea class="example-json" readonly id="example-suburb"></textarea>
-    </details>
+  </div>
+
+  <!-- Optional Property Overrides -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection('propOverrides')">
+      <span class="toggle" id="toggle-propOverrides">▶</span> Property Overrides <span style="font-weight:400;color:var(--pw-g4);text-transform:none;letter-spacing:0">(optional)</span>
+    </div>
+    <div class="collapsible collapsed" id="propOverrides">
+      <div class="form-hint" style="margin-bottom:12px">Override auto-scraped values. Leave blank to use scraped data.</div>
+      <div class="form-row">
+        <div><label class="form-label">Purchase Price</label><input type="text" class="form-input sm" id="ov_price" placeholder="e.g. 2900000"></div>
+        <div><label class="form-label">Lower Rent (weekly)</label><input type="text" class="form-input sm" id="ov_lowerRent" placeholder="e.g. 1200"></div>
+        <div><label class="form-label">Higher Rent (weekly)</label><input type="text" class="form-input sm" id="ov_higherRent" placeholder="e.g. 1600"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Bedrooms</label><input type="text" class="form-input sm" id="ov_beds" placeholder="e.g. 5"></div>
+        <div><label class="form-label">Bathrooms</label><input type="text" class="form-input sm" id="ov_baths" placeholder="e.g. 3"></div>
+        <div><label class="form-label">Car Spaces</label><input type="text" class="form-input sm" id="ov_cars" placeholder="e.g. 2"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Land Size (sqm)</label><input type="text" class="form-input sm" id="ov_land" placeholder="e.g. 704"></div>
+        <div><label class="form-label">Building Size (sqm)</label><input type="text" class="form-input sm" id="ov_building" placeholder="e.g. 349"></div>
+        <div><label class="form-label">Year Built</label><input type="text" class="form-input sm" id="ov_year" placeholder="e.g. 2019"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Listing Type</label>
+          <select class="form-select sm" id="ov_listing"><option value="">Auto-detect</option><option value="OFF MARKET">OFF MARKET</option><option value="ON MARKET">ON MARKET</option></select>
+        </div>
+        <div><label class="form-label">Property Type</label><input type="text" class="form-input sm" id="ov_type" placeholder="e.g. House"></div>
+        <div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cashflow Overrides -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection('cfOverrides')">
+      <span class="toggle" id="toggle-cfOverrides">▶</span> Cashflow Overrides <span style="font-weight:400;color:var(--pw-g4);text-transform:none;letter-spacing:0">(optional)</span>
+    </div>
+    <div class="collapsible collapsed" id="cfOverrides">
+      <div class="form-hint" style="margin-bottom:12px">Override default cashflow assumptions. Leave blank to use defaults.</div>
+      <div class="form-row">
+        <div><label class="form-label">Deposit %</label><input type="text" class="form-input sm" id="cf_deposit" placeholder="20"></div>
+        <div><label class="form-label">IO Rate %</label><input type="text" class="form-input sm" id="cf_ioRate" placeholder="6.25"></div>
+        <div><label class="form-label">P&I Rate %</label><input type="text" class="form-input sm" id="cf_piRate" placeholder="6.00"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Tax Bracket %</label><input type="text" class="form-input sm" id="cf_tax" placeholder="42"></div>
+        <div><label class="form-label">Buyer's Agency Fee</label><input type="text" class="form-input sm" id="cf_agency" placeholder="15000"></div>
+        <div><label class="form-label">Mgmt Fee %</label><input type="text" class="form-input sm" id="cf_mgmt" placeholder="5.5"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Council (annual)</label><input type="text" class="form-input sm" id="cf_council" placeholder="3000"></div>
+        <div><label class="form-label">Strata (annual)</label><input type="text" class="form-input sm" id="cf_strata" placeholder="0"></div>
+        <div><label class="form-label">Building Ins (annual)</label><input type="text" class="form-input sm" id="cf_buildIns" placeholder="1500"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Landlord Ins (annual)</label><input type="text" class="form-input sm" id="cf_llIns" placeholder="1500"></div>
+        <div><label class="form-label">Other (annual)</label><input type="text" class="form-input sm" id="cf_other" placeholder="2000"></div>
+        <div><label class="form-label">Renovation</label><input type="text" class="form-input sm" id="cf_reno" placeholder="0"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="form-label">Legals</label><input type="text" class="form-input sm" id="cf_legals" placeholder="1500"></div>
+        <div><label class="form-label">Pest & Building</label><input type="text" class="form-input sm" id="cf_pest" placeholder="500"></div>
+        <div><label class="form-label">Strata Report</label><input type="text" class="form-input sm" id="cf_strataRpt" placeholder="0"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Options -->
+  <div class="section">
+    <div class="options-row">
+      <label class="checkbox-label"><input type="checkbox" id="forceRegenerate"> Force regenerate report</label>
+      <label class="checkbox-label"><input type="checkbox" id="forceSuburb"> Refresh suburb data</label>
+    </div>
+  </div>
+
+  <button class="btn-generate" id="generateBtn" onclick="generateReport()">Generate Report</button>
+
+  <!-- Status -->
+  <div class="status-card" id="statusCard">
+    <div class="status-header">
+      <div class="status-icon" id="statusIcon">⏳</div>
+      <div><div class="status-title" id="statusTitle">Generating...</div><div class="status-sub" id="statusSub"></div></div>
+    </div>
+    <div class="status-log" id="statusLog"></div>
+    <div class="status-actions" id="statusActions"></div>
+  </div>
+
+  <!-- History -->
+  <div class="history" id="historySection" style="display:none">
+    <div class="section-header">Recent Reports</div>
+    <ul class="history-list" id="historyList"></ul>
   </div>
 </div>
 
-<!-- LEGACY -->
-<div id="panel-legacy" class="panel">
-  <div class="card">
-    <h2>Raw HTML → PDF (Legacy)</h2>
-    <form action="/convert" method="POST">
-      <label>Report Type</label>
-      <select name="reportType" style="width:100%"><option value="property">Property</option><option value="suburb">Suburb</option><option value="other">Other</option></select>
-      <label>Report Name</label>
-      <input type="text" name="reportName" style="width:100%" required>
-      <label>HTML</label>
-      <textarea name="html" style="min-height:300px;font-family:monospace"></textarea>
-      <button type="submit" class="btn btn-primary">Generate &amp; Upload</button>
-    </form>
+<!-- ═══════════════════════════════════════════ -->
+<!-- TAB 2: MANUAL / JSON                       -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-manual">
+  <div class="panel-title">Manual Endpoints</div>
+  <div class="panel-subtitle">Send JSON directly to the report generation endpoints. Used by the Claude-in-Chrome workflow.</div>
+
+  <div class="manual-section">
+    <h3>Generate Property Report</h3>
+    <p>POST /generate-property — Full property report with suburb pages, property summary, and cashflow.</p>
+    <textarea id="manualProperty" spellcheck="false">{
+  "propertyAddress": "3 Parsons Circuit, Kellyville, NSW 2155",
+  "cityName": "The Hills Shire",
+  "stateName": "New South Wales",
+  "suburbName": "Kellyville",
+  "state": "NSW",
+  "price": "$2,900,000",
+  "bedrooms": "5",
+  "bathrooms": "3",
+  "garages": "2",
+  "landSize": "704 sqm",
+  "yearBuilt": "2019",
+  "cityHighlights": ["Kellyville Metro Station", "Bernie Mullane Sports Complex"],
+  "cityParagraphs": ["The Hills Shire is one of Sydney's most prestigious LGAs..."],
+  "futureProspectsParagraphs": ["Growth prospects remain strong..."],
+  "suburbParagraphs": ["Kellyville encompasses approximately 7.2 square kilometres..."],
+  "insights": {
+    "percentageRenters": "20%",
+    "daysOnMarket": "50 days",
+    "vacancyRate": "1.48%",
+    "vendorDiscounting": "",
+    "stockOnMarket": "0.86%"
+  }
+}</textarea>
+    <button class="btn-sm" id="btnManualProperty" onclick="submitManual('property')">Generate Property Report</button>
+    <div id="resultProperty" class="manual-result" style="display:none"></div>
+  </div>
+
+  <div class="manual-section">
+    <h3>Generate Suburb Report</h3>
+    <p>POST /generate-suburb — Suburb overview with highlights, future prospects, and demographics.</p>
+    <textarea id="manualSuburb" spellcheck="false">{
+  "cityName": "The Hills Shire",
+  "stateName": "New South Wales",
+  "suburbName": "Kellyville",
+  "cityHighlights": ["Kellyville Metro Station", "Bernie Mullane Sports Complex"],
+  "cityParagraphs": ["The Hills Shire is located in northwest Sydney..."],
+  "futureProspectsParagraphs": ["The region continues to benefit from infrastructure investment..."],
+  "suburbParagraphs": ["Kellyville is approximately 7.2 square kilometres..."],
+  "insights": {
+    "percentageRenters": "20%",
+    "daysOnMarket": "50 days",
+    "vacancyRate": "1.48%",
+    "vendorDiscounting": "",
+    "stockOnMarket": "0.86%"
+  }
+}</textarea>
+    <button class="btn-sm" id="btnManualSuburb" onclick="submitManual('suburb')">Generate Suburb Report</button>
+    <div id="resultSuburb" class="manual-result" style="display:none"></div>
+  </div>
+
+  <div class="manual-section">
+    <h3>Convert HTML to PDF</h3>
+    <p>POST /convert — Send raw HTML and it will be converted to PDF and uploaded to Dropbox.</p>
+    <textarea id="manualConvert" spellcheck="false">{
+  "html": "<h1>Hello World</h1><p>This is a test PDF.</p>",
+  "reportType": "other",
+  "reportName": "test_report"
+}</textarea>
+    <button class="btn-sm" id="btnManualConvert" onclick="submitManual('convert')">Convert to PDF</button>
+    <div id="resultConvert" class="manual-result" style="display:none"></div>
   </div>
 </div>
 
 </div>
+
 <script>
-const EXAMPLES={
-property:{
-  reportName:"11_Parsons_Circuit_Kellyville",
-  cityName:"Sydney",
-  stateName:"New South Wales",
-  cityHighlights:["Sydney Opera House","Sydney Harbour Bridge","Royal Botanic Gardens","Bondi Beach","Taronga Zoo"],
-  cityParagraphs:[
-    "Sydney, the capital of New South Wales, is the largest and most populous city in Australia. Situated on one of the world's most stunning natural harbours, Sydney serves as a global gateway and a major commercial, cultural, and financial centre for the Asia-Pacific region.",
-    "Sydney was founded in 1788 as a British penal colony and has since grown into one of the most vibrant and multicultural cities in the world.",
-    "Sydney is located on the south-east coast of Australia. The city enjoys a temperate climate with warm summers and mild winters.",
-    "Sydney has a vibrant cultural scene, with world-class dining, entertainment, and the arts.",
-    "Sydney's economy is the largest in Australia, with strong sectors in finance, professional services, technology, healthcare, education, and tourism."
-  ],
-  futureProspectsParagraphs:[
-    "Sydney continues to benefit from significant infrastructure investment, including the Sydney Metro West rail line and the Western Sydney International Airport.",
-    "Urban renewal projects are expected to deliver new housing, commercial precincts, and community facilities."
-  ],
-  suburbName:"Kellyville",
-  suburbParagraphs:[
-    "The size of Kellyville is approximately 9.4 square kilometres. It has 40 parks covering nearly 8.3% of total area. The population of Kellyville in 2016 was 27971 people. By 2021 the population was 27011 showing a population decline of 3.4%. The predominant age group is 40-49 years. Households are primarily couples with children repaying over $4000 per month on mortgage repayments."
-  ],
-  insights:{
-    percentageRenters:"20%",
-    daysOnMarket:"35.5 days",
-    vacancyRate:"1.32%",
-    vendorDiscounting:"-4.8%",
-    stockOnMarket:"0.95%"
-  },
-  propertyAddress:"11 Parsons Circuit, Kellyville, NSW 2155",
-  listingType:"OFF MARKET",
-  price:"$4,050,000",
-  occupancyStatus:"Owner-Occupied",
-  currentRent:"$1,100 - $1,400",
-  state:"NSW",
-  yearBuilt:"2020",
-  bedrooms:"4",
-  bathrooms:"3",
-  garages:"3",
-  buildingSize:"405 sqm",
-  landSize:"831 sqm",
-  propertyDescription:"Built by the award-winning team at Construction by Design, this residence is a statement of elegance and sophistication with bespoke craftsmanship and premium finishes throughout.",
-  propertyFeatures:[
-    "Stunning street appeal with waterfall feature",
-    "Covered front porch leading into foyer entrance",
-    "Formal front lounge room with electric blinds",
-    "Open plan family living and dining with built-in fireplace",
-    "State of the art kitchen with Omega black stone finishes",
-    "Grand master bedroom with walk-in robe and full bathroom",
-    "Three additional bedrooms with walk-in robes",
-    "Ducted air-conditioning and hydronic heating throughout",
-    "Covered alfresco with built-in outdoor BBQ kitchen",
-    "Solar-heated concrete in-ground swimming pool",
-    "Fully tiled triple garage with bifold doors"
-  ],
-  locationDescription:"Centrally located bordering Bella Vista Waters and Norwest, close to parks, shops, cafes, schools, Metro stations and arterial roads.",
-  amenities:[
-    "Bella Vista Public School – 0.65 km",
-    "Crestwood High School – 3.03 km",
-    "Kellyville Metro Station – 1.5 km",
-    "Bella Vista Metro Station – 2.0 km",
-    "Norwest Business Park – 2.5 km",
-    "Kellyville Village Shopping Centre – 2.0 km",
-    "Castle Towers Shopping Centre – 5.0 km",
-    "Norwest Private Hospital – 3.0 km",
-    "Bernie Mullane Sports Complex – 1.5 km"
-  ],
-  comparableSales:[
-    {address:"15 Kingsbury Cct, Kellyville NSW 2155",beds:"5",baths:"3",garages:"2",landSize:"750 sqm",soldPrice:"$3,850,000",soldDate:"December 25"},
-    {address:"8 Greenfield Cres, Kellyville NSW 2155",beds:"4",baths:"3",garages:"2",landSize:"800 sqm",soldPrice:"$3,920,000",soldDate:"November 25"},
-    {address:"22 Fairway Dr, Kellyville NSW 2155",beds:"5",baths:"4",garages:"3",landSize:"900 sqm",soldPrice:"$4,200,000",soldDate:"October 25"}
-  ],
-  cashflowInputs:{
-    purchasePrice:4050000,
-    lowerRentWeekly:1100,
-    higherRentWeekly:1400,
-    stampDuty:209697,
-    mortgageFee:600
-  }
-},
-
-suburb:{
-  reportName:"Lavington_Suburb_Report",
-  cityName:"Albury",
-  stateName:"New South Wales",
-  cityHighlights:["Murray River","Albury Botanic Gardens","Hume Dam & Lake Hume","Albury Entertainment Centre","Monument Hill War Memorial"],
-  cityParagraphs:[
-    "Albury, situated on the northern banks of the Murray River, is one of the largest regional centres in New South Wales.",
-    "Founded in 1839, Albury has a rich history tied to its position along the Murray River as a major transport and trading route.",
-    "Albury is located on the border of New South Wales and Victoria, approximately 550 km southwest of Sydney.",
-    "Albury has a vibrant cultural scene. The Murray Art Museum Albury (MAMA) is a central cultural institution.",
-    "Albury's economy is diverse, with strong sectors in retail, healthcare, education, logistics, and manufacturing."
-  ],
-  futureProspectsParagraphs:[
-    "Albury is expected to continue expanding as a key regional growth centre.",
-    "With its strong economic base, strategic location, and lifestyle appeal, Albury is positioned for long-term growth."
-  ],
-  suburbName:"Lavington",
-  suburbParagraphs:[
-    "The size of Lavington is approximately 14.8 square kilometres. It has 11 parks covering nearly 3.2% of total area. The population in 2016 was 12472. By 2021 it was 13073 showing growth of 4.8%. The predominant age group is 20-29 years."
-  ],
-  insights:{
-    percentageRenters:"41.00% (Ideally under 40%)",
-    daysOnMarket:"24 days (Recommended under 60 days)",
-    vacancyRate:"0.78% (ideal under 1.5%)",
-    vendorDiscounting:"-1.80% (ideal under 5% plus)",
-    stockOnMarket:"0.63% (Ideal under 2%)"
-  }
+/* ─── Tabs ─── */
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
 }
-};
 
-function switchTab(n){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelector(`[onclick="switchTab('${n}')"]`).classList.add('active');document.getElementById(`panel-${n}`).classList.add('active')}
-function loadExample(t){document.getElementById(`json-${t}`).value=JSON.stringify(EXAMPLES[t],null,2)}
-function showStatus(id,c,m){const e=document.getElementById(id);e.className=`status ${c}`;e.textContent=m}
-window.addEventListener('DOMContentLoaded',()=>{document.getElementById('example-property').value=JSON.stringify(EXAMPLES.property,null,2);document.getElementById('example-suburb').value=JSON.stringify(EXAMPLES.suburb,null,2)});
-
-async function submitReport(type){
-  const ta=document.getElementById(`json-${type}`),sid=`status-${type}`,raw=ta.value.trim();
-  if(!raw){showStatus(sid,'error','Paste JSON first.');return}
-  let data;try{data=JSON.parse(raw)}catch(e){showStatus(sid,'error','Invalid JSON: '+e.message);return}
-  const endpoint=type==='property'?'/generate-property':'/generate-suburb';
-  showStatus(sid,'loading','Generating report & uploading to Dropbox...');
-  try{
-    const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    const j=await r.json();showStatus(sid,j.success?'success':'error',j.message||j.error)
-  }catch(err){showStatus(sid,'error','Failed: '+err.message)}
+/* ─── Collapsible sections ─── */
+function toggleSection(id) {
+  const el = document.getElementById(id);
+  const toggle = document.getElementById('toggle-' + id);
+  el.classList.toggle('collapsed');
+  toggle.classList.toggle('open');
 }
+
+/* ─── Comparables ─── */
+function addComp() {
+  const list = document.getElementById('compsList');
+  const n = list.children.length + 1;
+  const row = document.createElement('div');
+  row.className = 'comp-row';
+  row.innerHTML = `<span class="comp-num">${n}</span><input type="text" class="form-input comp-input" placeholder="e.g. 7 Abernathy Court, Kellyville, NSW 2155"><button class="btn-remove" onclick="removeComp(this)">×</button>`;
+  list.appendChild(row);
+}
+function removeComp(btn) {
+  btn.parentElement.remove();
+  document.querySelectorAll('#compsList .comp-row').forEach((r,i) => r.querySelector('.comp-num').textContent = i+1);
+}
+
+/* ─── History ─── */
+function loadHistory() {
+  const h = JSON.parse(localStorage.getItem('pw_history') || '[]');
+  const sec = document.getElementById('historySection');
+  const list = document.getElementById('historyList');
+  if (!h.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = h.slice(0,8).map(e => `
+    <li class="history-item">
+      <div><div class="history-addr">${e.address}</div><div class="history-meta">${e.date} · ${e.elapsed||''}</div></div>
+      ${e.link ? `<a href="${e.link}" target="_blank" class="history-badge success">View ↗</a>` : `<span class="history-badge ${e.ok?'success':'error'}">${e.ok?'Done':'Failed'}</span>`}
+    </li>`).join('');
+}
+function saveHistory(e) {
+  const h = JSON.parse(localStorage.getItem('pw_history') || '[]');
+  h.unshift(e);
+  if (h.length > 20) h.pop();
+  localStorage.setItem('pw_history', JSON.stringify(h));
+  loadHistory();
+}
+
+/* ─── Helper: get optional value ─── */
+function ov(id) { const v = document.getElementById(id)?.value?.trim(); return v || undefined; }
+function ovn(id) { const v = ov(id); return v ? parseFloat(v) : undefined; }
+
+/* ─── Auto Report ─── */
+async function generateReport() {
+  const address = document.getElementById('address').value.trim();
+  if (!address) { document.getElementById('address').focus(); document.getElementById('address').style.borderColor='var(--pw-red)'; setTimeout(()=>document.getElementById('address').style.borderColor='',2000); return; }
+
+  const comps = Array.from(document.querySelectorAll('.comp-input')).map(i=>i.value.trim()).filter(Boolean);
+
+  // Build request body
+  const body = { address };
+  if (comps.length) body.comparableAddresses = comps;
+  if (document.getElementById('forceRegenerate').checked) body.forceRegenerate = true;
+  if (document.getElementById('forceSuburb').checked) body.forceSuburbRefresh = true;
+
+  // Property overrides
+  if (ov('ov_price')) body.purchasePrice = ov('ov_price');
+  if (ov('ov_price')) body.price = ov('ov_price');
+  if (ov('ov_lowerRent')) body.lowerRentWeekly = ov('ov_lowerRent');
+  if (ov('ov_higherRent')) body.higherRentWeekly = ov('ov_higherRent');
+  if (ov('ov_beds')) body.bedrooms = ov('ov_beds');
+  if (ov('ov_baths')) body.bathrooms = ov('ov_baths');
+  if (ov('ov_cars')) body.garages = ov('ov_cars');
+  if (ov('ov_land')) body.landSize = ov('ov_land') + ' sqm';
+  if (ov('ov_building')) body.buildingSize = ov('ov_building') + ' sqm';
+  if (ov('ov_year')) body.yearBuilt = ov('ov_year');
+  if (ov('ov_listing')) body.listingType = ov('ov_listing');
+  if (ov('ov_type')) body.propertyType = ov('ov_type');
+
+  // Cashflow overrides
+  const cfOv = {};
+  if (ovn('cf_deposit') !== undefined) cfOv.depositPercent = ovn('cf_deposit');
+  if (ovn('cf_ioRate') !== undefined) cfOv.interestOnlyRate = ovn('cf_ioRate');
+  if (ovn('cf_piRate') !== undefined) cfOv.principalInterestRate = ovn('cf_piRate');
+  if (ovn('cf_tax') !== undefined) cfOv.taxBracket = ovn('cf_tax');
+  if (ovn('cf_agency') !== undefined) cfOv.buyersAgencyFee = ovn('cf_agency');
+  if (ovn('cf_mgmt') !== undefined) cfOv.mgmtFeePercent = ovn('cf_mgmt');
+  if (ovn('cf_council') !== undefined) cfOv.councilAnnually = ovn('cf_council');
+  if (ovn('cf_strata') !== undefined) cfOv.strataAnnually = ovn('cf_strata');
+  if (ovn('cf_buildIns') !== undefined) cfOv.buildingInsAnnually = ovn('cf_buildIns');
+  if (ovn('cf_llIns') !== undefined) cfOv.landlordInsAnnually = ovn('cf_llIns');
+  if (ovn('cf_other') !== undefined) cfOv.otherAnnually = ovn('cf_other');
+  if (ovn('cf_reno') !== undefined) cfOv.renovation = ovn('cf_reno');
+  if (ovn('cf_legals') !== undefined) cfOv.legals = ovn('cf_legals');
+  if (ovn('cf_pest') !== undefined) cfOv.pestReport = ovn('cf_pest');
+  if (ovn('cf_strataRpt') !== undefined) cfOv.strataReport = ovn('cf_strataRpt');
+  if (Object.keys(cfOv).length) body.cashflowOverrides = cfOv;
+
+  // UI loading state
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Generating...';
+  const sc = document.getElementById('statusCard'); sc.classList.add('visible');
+  const icon = document.getElementById('statusIcon');
+  const title = document.getElementById('statusTitle');
+  const sub = document.getElementById('statusSub');
+  const log = document.getElementById('statusLog');
+  const actions = document.getElementById('statusActions');
+  icon.className='status-icon loading'; icon.textContent='⏳';
+  title.textContent='Generating report...'; sub.textContent=address;
+  log.innerHTML=''; actions.innerHTML='';
+  log.innerHTML += '🚀 Starting report generation...\n';
+
+  const steps = ['Checking Dropbox...','Scraping suburb data...','Fetching property details...','Scraping comparables from Domain...','Fetching amenities...','Building PDF...','Uploading...'];
+  let si=0;
+  const timer = setInterval(() => { if(si<steps.length) log.innerHTML += '⏳ '+steps[si++]+'\n'; log.scrollTop=log.scrollHeight; }, 5000);
+
+  try {
+    const res = await fetch('/auto-report', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    clearInterval(timer);
+    const data = await res.json();
+    if (data.success) {
+      icon.className='status-icon success'; icon.textContent='✓';
+      title.textContent='Report generated'; sub.textContent=`${address} · ${data.elapsed||''}`;
+      log.innerHTML += '✅ ' + data.message + '\n';
+      if (data.errors?.length) data.errors.forEach(e => log.innerHTML += '⚠️ '+e.source+': '+(e.error||'').substring(0,80)+'\n');
+      let ah = data.dropboxLink ? `<a href="${data.dropboxLink}" target="_blank" class="btn-link primary">📄 View in Dropbox</a>` : '';
+      ah += `<button class="btn-link secondary" onclick="resetForm()">Generate Another</button>`;
+      actions.innerHTML = ah;
+      saveHistory({address, date:new Date().toLocaleDateString(), elapsed:data.elapsed, ok:true, link:data.dropboxLink||null});
+    } else { throw new Error(data.error||'Failed'); }
+  } catch(err) {
+    clearInterval(timer);
+    icon.className='status-icon error'; icon.textContent='✗';
+    title.textContent='Failed'; sub.textContent=address;
+    log.innerHTML += '❌ '+err.message+'\n';
+    actions.innerHTML = `<button class="btn-link secondary" onclick="generateReport()">Retry</button> <button class="btn-link secondary" onclick="resetForm()">Reset</button>`;
+    saveHistory({address, date:new Date().toLocaleDateString(), ok:false});
+  }
+  btn.disabled=false; btn.innerHTML='Generate Report';
+  log.scrollTop=log.scrollHeight;
+}
+
+function resetForm() {
+  document.getElementById('address').value='';
+  document.querySelectorAll('.comp-input').forEach(i=>i.value='');
+  document.getElementById('statusCard').classList.remove('visible');
+  document.getElementById('address').focus();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ─── Manual Endpoints ─── */
+async function submitManual(type) {
+  const endpoints = { property:'/generate-property', suburb:'/generate-suburb', convert:'/convert' };
+  const textareaId = { property:'manualProperty', suburb:'manualSuburb', convert:'manualConvert' };
+  const btnId = { property:'btnManualProperty', suburb:'btnManualSuburb', convert:'btnManualConvert' };
+  const resultId = { property:'resultProperty', suburb:'resultSuburb', convert:'resultConvert' };
+
+  const btn = document.getElementById(btnId[type]);
+  const result = document.getElementById(resultId[type]);
+  let body;
+
+  try { body = JSON.parse(document.getElementById(textareaId[type]).value); }
+  catch(e) { result.style.display='block'; result.className='manual-result err'; result.textContent='Invalid JSON: '+e.message; return; }
+
+  btn.disabled = true; btn.textContent = 'Sending...';
+  result.style.display = 'none';
+
+  try {
+    const res = await fetch(endpoints[type], { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) { data = text; }
+    result.style.display='block';
+    result.className='manual-result '+(res.ok?'ok':'err');
+    result.textContent = typeof data==='string' ? data : JSON.stringify(data, null, 2);
+  } catch(err) {
+    result.style.display='block'; result.className='manual-result err'; result.textContent='Error: '+err.message;
+  }
+  btn.disabled=false;
+  btn.textContent = type==='convert' ? 'Convert to PDF' : 'Generate '+(type==='property'?'Property':'Suburb')+' Report';
+}
+
+/* ─── Keyboard ─── */
+document.getElementById('address').addEventListener('keydown', e => { if(e.key==='Enter') generateReport(); });
+
+/* ─── Init ─── */
+loadHistory();
 </script>
 </body>
 </html>
