@@ -886,8 +886,22 @@ async function callScraper(endpoint, body) {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      timeout: 120000,
+      timeout: 300000,
     });
+
+    // Handle non-JSON error responses (e.g. Render's "Too Many Requests" plain text)
+    const contentType = resp.headers.get('content-type') || '';
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error(`⚠️ Scraper ${endpoint} returned ${resp.status}: ${text.substring(0, 100)}`);
+      return { success: false, error: `${resp.status}: ${text.substring(0, 100)}` };
+    }
+    if (!contentType.includes('application/json')) {
+      const text = await resp.text();
+      console.error(`⚠️ Scraper ${endpoint} returned non-JSON: ${text.substring(0, 100)}`);
+      return { success: false, error: `Non-JSON response: ${text.substring(0, 100)}` };
+    }
+
     const data = await resp.json();
     return data;
   } catch (err) {
@@ -1188,6 +1202,7 @@ function mapScraperToReport(input, suburbData, propertyData, comparablesData, pl
   };
 }
 
+
 // ── AUTO-REPORT ENDPOINT ──
 app.post("/auto-report", async (req, res) => {
   const input = req.body;
@@ -1280,12 +1295,11 @@ app.post("/auto-report", async (req, res) => {
     }
 
     // ════════════════════════════════════════════
-    // STEP 3: Sequential scraping (with AI fallback)
+    // STEP 3: Sequential scraping
     // ════════════════════════════════════════════
     // Calls are sequential because the scraper runs Playwright which is
     // memory-heavy — parallel requests can cause timeouts on hobby tier.
-    const useAI = !!input.forceAIFallback;
-    console.log(`   Scraping: suburb=${suburb}, state=${state}, postcode=${postcode}${useAI ? " [FORCED AI]" : ""}`);
+    console.log(`   Scraping: suburb=${suburb}, state=${state}, postcode=${postcode}`);
 
     // 1. Suburb data — skip entirely if we have cached data
     let suburbScrapeResult;
@@ -1293,13 +1307,13 @@ app.post("/auto-report", async (req, res) => {
       const needSuburbText = !input.cityParagraphs || !input.futureProspectsParagraphs;
       if (needSuburbText) {
         suburbScrapeResult = await callScraper("/api/suburb", { suburb, state, postcode });
-        console.log(`   ✅ Suburb data: ${suburbScrapeResult.success ? "OK" : "FAILED"} [${suburbScrapeResult.source || "scraper"}]`);
+        console.log(`   ✅ Suburb data: ${suburbScrapeResult.success ? "OK" : "FAILED"}`);
       } else {
-        suburbScrapeResult = { success: true, data: {}, source: "skipped" };
+        suburbScrapeResult = { success: true, data: {} };
       }
     } else {
       console.log(`   ⏩ Skipping suburb scrape entirely (using cached data)`);
-      suburbScrapeResult = { success: true, data: cachedSuburbData, source: "cache" };
+      suburbScrapeResult = { success: true, data: cachedSuburbData };
     }
 
     // 2. Property data (CoreLogic) — skip if key fields provided
@@ -1307,16 +1321,16 @@ app.post("/auto-report", async (req, res) => {
     const needProperty = !input.bedrooms || !input.bathrooms;
     if (needProperty) {
       propertyResult = await callScraper("/api/property", { address: input.address });
-      console.log(`   ✅ Property data: ${propertyResult.success ? "OK" : "FAILED"} [${propertyResult.source || "scraper"}]`);
+      console.log(`   ✅ Property data: ${propertyResult.success ? "OK" : "FAILED"}`);
     } else {
-      propertyResult = { success: true, data: {}, source: "skipped" };
+      propertyResult = { success: true, data: {} };
     }
 
     // 3. Comparables (Domain.com.au) — only if addresses provided
     let comparablesResult = null;
     if (input.comparableAddresses?.length) {
       comparablesResult = await callScraper("/api/domain-comparables", { addresses: input.comparableAddresses });
-      console.log(`   ✅ Comparables (Domain): ${comparablesResult.success ? "OK" : "FAILED"} [${comparablesResult.source || "scraper"}]`);
+      console.log(`   ✅ Comparables (Domain): ${comparablesResult.success ? "OK" : "FAILED"}`);
     }
 
     if (suburbScrapeResult && !suburbScrapeResult.success) errors.push({ source: "suburb", error: suburbScrapeResult.error });
@@ -1372,9 +1386,38 @@ app.post("/auto-report", async (req, res) => {
     const reportData = mapScraperToReport(input, suburbScrapeResult, propertyResult, comparablesResult, placesAmenities);
 
     // ════════════════════════════════════════════
+    // STEP 4b: Validate critical data before generating reports
+    // ════════════════════════════════════════════
+
+    // Suburb report requires at least some suburb text content
+    const hasSuburbContent = reportData.cityParagraphs?.length > 0 ||
+      reportData.suburbParagraphs?.length > 0 ||
+      reportData.futureProspectsParagraphs?.length > 0;
+
+    // Property report requires at minimum bedrooms or a price
+    const hasPropertyContent = reportData.bedrooms || reportData.bathrooms ||
+      reportData.price || reportData.cashflowInputs;
+
+    if (!hasSuburbContent && !suburbIsFresh) {
+      console.log(`   ❌ Suburb scrape returned no content — skipping suburb report upload`);
+      errors.push({ source: "validation", error: "Suburb data is empty — suburb report not generated" });
+    }
+
+    if (!hasPropertyContent) {
+      console.log(`   ❌ Property scrape returned no content — skipping property report upload`);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      return res.status(422).json({
+        success: false,
+        error: "Property data is empty — cannot generate a meaningful report. Check that the scraper is working and the address is valid.",
+        elapsed: elapsed + "s",
+        errors,
+      });
+    }
+
+    // ════════════════════════════════════════════
     // STEP 5: Suburb report — generate/update if needed, save data cache
     // ════════════════════════════════════════════
-    if (!suburbIsFresh) {
+    if (!suburbIsFresh && hasSuburbContent) {
       console.log(`   📄 Generating suburb report for ${suburb}...`);
       const suburbHtml = buildSuburbReportHtml(reportData);
       const suburbPdf = await generatePdfBuffer(suburbHtml);
@@ -1385,6 +1428,8 @@ app.post("/auto-report", async (req, res) => {
       const suburbDataPath = makeSuburbDataPath(suburb, state, postcode);
       await dropboxUpload(suburbDataPath, Buffer.from(JSON.stringify(suburbCacheData, null, 2)));
       console.log(`   ✅ Suburb report + data cache uploaded: ${suburbPath}`);
+    } else if (!suburbIsFresh) {
+      console.log(`   ⏩ Skipping suburb report — no content to generate`);
     }
 
     // ════════════════════════════════════════════
@@ -1498,6 +1543,20 @@ app.post("/auto-suburb", async (req, res) => {
       reportName: input.reportName || suburb + "_Suburb_Report",
     };
 
+    // Validate — don't upload empty suburb reports
+    const hasContent = reportData.cityParagraphs?.length > 0 ||
+      reportData.suburbParagraphs?.length > 0 ||
+      reportData.futureProspectsParagraphs?.length > 0;
+
+    if (!hasContent && !suburbResult?.success) {
+      console.log(`   ❌ Suburb scrape failed and no content available`);
+      return res.status(422).json({
+        success: false,
+        error: "Suburb data is empty — scraper may have failed. Report not generated to avoid uploading blank data.",
+        scraperError: suburbResult?.error || "Unknown",
+      });
+    }
+
     const html = buildSuburbReportHtml(reportData);
     const suburbPdf = await generatePdfBuffer(html);
     await dropboxUpload(suburbPath, suburbPdf);
@@ -1528,3 +1587,11 @@ app.listen(PORT, () => {
   console.log(`   Auto-report: POST /auto-report { address: "..." }`);
   console.log(`   Auto-suburb: POST /auto-suburb { suburb, state, postcode }`);
 });
+
+// Graceful shutdown
+async function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down...`);
+  process.exit(0);
+}
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
