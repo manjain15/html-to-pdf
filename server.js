@@ -878,35 +878,47 @@ function parseAddress(address) {
 
 // Call scraper API with error handling
 async function callScraper(endpoint, body) {
-  try {
-    const headers = { "Content-Type": "application/json" };
-    if (SCRAPER_KEY) headers["x-api-key"] = SCRAPER_KEY;
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (SCRAPER_KEY) headers["x-api-key"] = SCRAPER_KEY;
 
-    const resp = await fetch(`${SCRAPER_BASE}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      timeout: 300000,
-    });
+      const resp = await fetch(`${SCRAPER_BASE}${endpoint}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        timeout: 300000,
+      });
 
-    // Handle non-JSON error responses (e.g. Render's "Too Many Requests" plain text)
-    const contentType = resp.headers.get('content-type') || '';
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.error(`⚠️ Scraper ${endpoint} returned ${resp.status}: ${text.substring(0, 100)}`);
-      return { success: false, error: `${resp.status}: ${text.substring(0, 100)}` };
+      const contentType = resp.headers.get('content-type') || '';
+      if (resp.status === 429) {
+        const wait = (attempt + 1) * 5000;
+        console.log(`⚠️ Scraper ${endpoint} returned 429 — retrying in ${wait/1000}s (attempt ${attempt + 1}/${maxRetries + 1})`);
+        if (attempt < maxRetries) { await new Promise(r => setTimeout(r, wait)); continue; }
+      }
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error(`⚠️ Scraper ${endpoint} returned ${resp.status}: ${text.substring(0, 100)}`);
+        return { success: false, error: `${resp.status}: ${text.substring(0, 100)}` };
+      }
+      if (!contentType.includes('application/json')) {
+        const text = await resp.text();
+        console.error(`⚠️ Scraper ${endpoint} returned non-JSON: ${text.substring(0, 100)}`);
+        return { success: false, error: `Non-JSON response: ${text.substring(0, 100)}` };
+      }
+
+      return await resp.json();
+    } catch (err) {
+      if (attempt < maxRetries) {
+        const wait = (attempt + 1) * 5000;
+        console.log(`⚠️ Scraper ${endpoint} error — retrying in ${wait/1000}s: ${err.message}`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      console.error(`⚠️ Scraper ${endpoint} failed after ${maxRetries + 1} attempts:`, err.message);
+      return { success: false, error: err.message };
     }
-    if (!contentType.includes('application/json')) {
-      const text = await resp.text();
-      console.error(`⚠️ Scraper ${endpoint} returned non-JSON: ${text.substring(0, 100)}`);
-      return { success: false, error: `Non-JSON response: ${text.substring(0, 100)}` };
-    }
-
-    const data = await resp.json();
-    return data;
-  } catch (err) {
-    console.error(`⚠️ Scraper ${endpoint} failed:`, err.message);
-    return { success: false, error: err.message };
   }
 }
 
