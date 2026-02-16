@@ -1460,6 +1460,7 @@ app.post("/auto-report", async (req, res) => {
     await dropboxUpload(propertyPath, propertyPdf);
 
     const propertyLink = await dropboxGetSharedLink(propertyPath);
+    console.log(`   🔗 Dropbox link: ${propertyLink || 'FAILED'}`);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`✅ Auto-report complete in ${elapsed}s: ${propertyPath}`);
 
