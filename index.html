@@ -186,7 +186,7 @@
   <!-- Optional Property Overrides -->
   <div class="section">
     <div class="section-header" onclick="toggleSection('propOverrides')">
-      <span class="toggle" id="toggle-propOverrides">▶</span> Property Overrides <span style="font-weight:400;color:var(--pw-g4);text-transform:none;letter-spacing:0">(optional)</span>
+      <span class="toggle" id="toggle-propOverrides">▶</span> Property Overrides
     </div>
     <div class="collapsible collapsed" id="propOverrides">
       <div class="form-hint" style="margin-bottom:12px">Override auto-scraped values. Leave blank to use scraped data.</div>
@@ -195,6 +195,23 @@
         <div><label class="form-label">Lower Rent (weekly)</label><input type="text" class="form-input sm" id="ov_lowerRent" placeholder="e.g. 1200"></div>
         <div><label class="form-label">Higher Rent (weekly)</label><input type="text" class="form-input sm" id="ov_higherRent" placeholder="e.g. 1600"></div>
       </div>
+      <div class="form-row">
+        <div><label class="form-label">Listing Type</label>
+          <select class="form-select sm" id="ov_listing"><option value="">Auto-detect</option><option value="OFF MARKET">OFF MARKET</option><option value="ON MARKET">ON MARKET</option></select>
+        </div>
+        <div></div>
+        <div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Optional Property Config -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection('propConfig')">
+      <span class="toggle" id="toggle-propConfig">▶</span> Property Config <span style="font-weight:400;color:var(--pw-g4);text-transform:none;letter-spacing:0">(optional)</span>
+    </div>
+    <div class="collapsible collapsed" id="propConfig">
+      <div class="form-hint" style="margin-bottom:12px">Override property configuration. Leave blank to use scraped data.</div>
       <div class="form-row">
         <div><label class="form-label">Bedrooms</label><input type="text" class="form-input sm" id="ov_beds" placeholder="e.g. 5"></div>
         <div><label class="form-label">Bathrooms</label><input type="text" class="form-input sm" id="ov_baths" placeholder="e.g. 3"></div>
@@ -206,10 +223,8 @@
         <div><label class="form-label">Year Built</label><input type="text" class="form-input sm" id="ov_year" placeholder="e.g. 2019"></div>
       </div>
       <div class="form-row">
-        <div><label class="form-label">Listing Type</label>
-          <select class="form-select sm" id="ov_listing"><option value="">Auto-detect</option><option value="OFF MARKET">OFF MARKET</option><option value="ON MARKET">ON MARKET</option></select>
-        </div>
         <div><label class="form-label">Property Type</label><input type="text" class="form-input sm" id="ov_type" placeholder="e.g. House"></div>
+        <div></div>
         <div></div>
       </div>
     </div>
