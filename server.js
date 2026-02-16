@@ -147,7 +147,6 @@ async function dropboxDelete(filePath) {
 async function dropboxGetSharedLink(filePath) {
   const token = await getDropboxToken();
   try {
-    // Try to create a new shared link
     const resp = await fetch("https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings", {
       method: "POST",
       headers: {
@@ -160,7 +159,9 @@ async function dropboxGetSharedLink(filePath) {
       const data = await resp.json();
       return data.url;
     }
-    // If link already exists (409 conflict), fetch existing links
+    const errText = await resp.text();
+    console.log(`   ⚠️ Shared link create failed (${resp.status}): ${errText.substring(0, 200)}`);
+    
     if (resp.status === 409) {
       const listResp = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_links", {
         method: "POST",
@@ -174,9 +175,14 @@ async function dropboxGetSharedLink(filePath) {
         const listData = await listResp.json();
         if (listData.links?.length) return listData.links[0].url;
       }
+      const listErr = await listResp.text().catch(() => '');
+      console.log(`   ⚠️ Shared link list failed (${listResp.status}): ${listErr.substring(0, 200)}`);
     }
     return null;
-  } catch { return null; }
+  } catch (e) {
+    console.log(`   ⚠️ Shared link error: ${e.message}`);
+    return null;
+  }
 }
 
 // Download a file from Dropbox (returns Buffer)
