@@ -119,6 +119,21 @@
   .spinner{width:16px;height:16px;border:2.5px solid rgba(255,255,255,.3);border-top-color:var(--pw-w);border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
 
+  /* Address Autocomplete */
+  .addr-wrap{position:relative}
+  .addr-dropdown{position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--pw-w);border:1.5px solid var(--pw-pink);border-top:none;border-radius:0 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.1);max-height:260px;overflow-y:auto;display:none}
+  .addr-dropdown.open{display:block}
+  .addr-item{padding:10px 14px;font-size:13px;cursor:pointer;display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--pw-g2);transition:background .1s}
+  .addr-item:last-child{border-bottom:none}
+  .addr-item:hover,.addr-item.active{background:var(--pw-pink-light)}
+  .addr-item-icon{color:var(--pw-pink);font-size:14px;margin-top:1px;flex-shrink:0}
+  .addr-item-text{flex:1;min-width:0}
+  .addr-item-main{font-weight:500;color:var(--pw-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .addr-item-sub{font-size:11px;color:var(--pw-g4);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .addr-powered{padding:6px 14px;font-size:9px;color:var(--pw-g4);text-align:right;border-top:1px solid var(--pw-g2);background:var(--pw-g1)}
+  .form-input.has-autocomplete{border-radius:8px;transition:border-radius .15s}
+  .form-input.has-autocomplete.dropdown-open{border-radius:8px 8px 0 0;border-color:var(--pw-pink);box-shadow:0 0 0 3px rgba(232,76,138,.1)}
+
   @media(max-width:600px){.form-row{flex-direction:column}.tabs{gap:2px}.tab{padding:8px 12px;font-size:12px}.tab-panel{padding:24px 16px}}
 </style>
 </head>
@@ -153,13 +168,16 @@
     <div class="section-header">Property Details</div>
     <div class="form-group">
       <label class="form-label">Property Address *</label>
-      <input type="text" class="form-input" id="address" placeholder="e.g. 3 Parsons Circuit, Kellyville, NSW 2155">
+      <div class="addr-wrap">
+        <input type="text" class="form-input has-autocomplete" id="address" placeholder="Start typing an address..." autocomplete="off">
+        <div class="addr-dropdown" id="addrDropdown"></div>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Comparable Addresses</label>
       <div class="form-hint">Recent nearby sales to include in the report</div>
       <div id="compsList">
-        <div class="comp-row"><span class="comp-num">1</span><input type="text" class="form-input comp-input" placeholder="e.g. 11 Parsons Circuit, Kellyville, NSW 2155"><button class="btn-remove" onclick="removeComp(this)">×</button></div>
+        <div class="comp-row"><span class="comp-num">1</span><div class="addr-wrap" style="flex:1"><input type="text" class="form-input comp-input has-autocomplete" placeholder="Start typing an address..." autocomplete="off"><div class="addr-dropdown comp-dropdown"></div></div><button class="btn-remove" onclick="removeComp(this)">×</button></div>
       </div>
       <button class="btn-add" onclick="addComp()">+ Add comparable</button>
     </div>
@@ -236,7 +254,7 @@
   <div class="section">
     <div class="options-row">
       <label class="checkbox-label"><input type="checkbox" id="forceRegenerate"> Force regenerate report</label>
-      <label class="checkbox-label"><input type="checkbox" id="forceSuburb"> Refresh suburb data</label>
+      <label class="checkbox-label" style="display:none"><input type="checkbox" id="forceSuburb"> Refresh suburb data</label>
     </div>
   </div>
 
@@ -358,8 +376,9 @@ function addComp() {
   const n = list.children.length + 1;
   const row = document.createElement('div');
   row.className = 'comp-row';
-  row.innerHTML = `<span class="comp-num">${n}</span><input type="text" class="form-input comp-input" placeholder="e.g. 7 Abernathy Court, Kellyville, NSW 2155"><button class="btn-remove" onclick="removeComp(this)">×</button>`;
+  row.innerHTML = `<span class="comp-num">${n}</span><div class="addr-wrap" style="flex:1"><input type="text" class="form-input comp-input has-autocomplete" placeholder="Start typing an address..." autocomplete="off"><div class="addr-dropdown comp-dropdown"></div></div><button class="btn-remove" onclick="removeComp(this)">×</button>`;
   list.appendChild(row);
+  initCompAutocomplete(row.querySelector('.comp-input'));
 }
 function removeComp(btn) {
   btn.parentElement.remove();
@@ -463,6 +482,13 @@ async function generateReport() {
       icon.className='status-icon success'; icon.textContent='✓';
       title.textContent='Report generated'; sub.textContent=`${address} · ${data.elapsed||''}`;
       log.innerHTML += '✅ ' + data.message + '\n';
+      if (data.sources) {
+        const srcLine = Object.entries(data.sources).map(([k,v]) => {
+          const icon = v === 'ai-fallback' ? '🤖' : v === 'scraper' ? '📊' : v === 'cache' ? '💾' : '⏩';
+          return `${icon} ${k}: ${v}`;
+        }).join('  ·  ');
+        log.innerHTML += srcLine + '\n';
+      }
       if (data.errors?.length) data.errors.forEach(e => log.innerHTML += '⚠️ '+e.source+': '+(e.error||'').substring(0,80)+'\n');
       let ah = data.dropboxLink ? `<a href="${data.dropboxLink}" target="_blank" class="btn-link primary">📄 View in Dropbox</a>` : '';
       ah += `<button class="btn-link secondary" onclick="resetForm()">Generate Another</button>`;
@@ -521,11 +547,206 @@ async function submitManual(type) {
   btn.textContent = type==='convert' ? 'Convert to PDF' : 'Generate '+(type==='property'?'Property':'Suburb')+' Report';
 }
 
-/* ─── Keyboard ─── */
-document.getElementById('address').addEventListener('keydown', e => { if(e.key==='Enter') generateReport(); });
+/* ─── Address Autocomplete (Google Places) ─── */
+let gMapsReady = false;
+let autocompleteService = null;
+let placesService = null;
+let sessionToken = null;
+let activeDropdown = null;
+let activeItems = [];
+let activeIndex = -1;
+let debounceTimer = null;
+
+// Load Google Maps JS API — key served from our own backend
+async function loadGoogleMaps() {
+  try {
+    const resp = await fetch('/api/config');
+    const cfg = await resp.json();
+    if (!cfg.googleApiKey) { console.warn('No Google API key — autocomplete disabled'); return; }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${cfg.googleApiKey}&libraries=places&callback=onGoogleMapsReady`;
+    script.async = true; script.defer = true;
+    document.head.appendChild(script);
+  } catch(e) { console.warn('Could not load Google Maps:', e); }
+}
+
+window.onGoogleMapsReady = function() {
+  gMapsReady = true;
+  autocompleteService = new google.maps.places.AutocompleteService();
+  // Dummy div for PlacesService (needed to get place details)
+  placesService = new google.maps.places.PlacesService(document.createElement('div'));
+  sessionToken = new google.maps.places.AutocompleteSessionToken();
+  // Init autocomplete on the main address input
+  initAddressAutocomplete();
+  // Init on existing comp inputs
+  document.querySelectorAll('.comp-input').forEach(inp => initCompAutocomplete(inp));
+};
+
+function initAddressAutocomplete() {
+  const input = document.getElementById('address');
+  const dropdown = document.getElementById('addrDropdown');
+  setupAutocomplete(input, dropdown, (formatted) => {
+    input.value = formatted;
+    // Auto-focus the generate button after selecting
+    document.getElementById('generateBtn').focus();
+  });
+}
+
+function initCompAutocomplete(input) {
+  if (!gMapsReady) return;
+  const dropdown = input.parentElement.querySelector('.comp-dropdown');
+  if (!dropdown) return;
+  setupAutocomplete(input, dropdown, (formatted) => {
+    input.value = formatted;
+  });
+}
+
+function setupAutocomplete(input, dropdown, onSelect) {
+  let itemsData = [];
+  let selIdx = -1;
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    if (q.length < 3) { closeDropdown(input, dropdown); return; }
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => fetchSuggestions(q, input, dropdown, itemsData), 250);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (!dropdown.classList.contains('open')) {
+      if (e.key === 'Enter') { generateReport(); return; }
+      return;
+    }
+    const items = dropdown.querySelectorAll('.addr-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); selIdx = Math.min(selIdx + 1, items.length - 1); highlightItem(items, selIdx); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); selIdx = Math.max(selIdx - 1, 0); highlightItem(items, selIdx); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (selIdx >= 0 && selIdx < itemsData.length) { selectPlace(itemsData[selIdx], input, dropdown, onSelect); }
+      else if (itemsData.length > 0) { selectPlace(itemsData[0], input, dropdown, onSelect); }
+    }
+    else if (e.key === 'Escape') { closeDropdown(input, dropdown); }
+  });
+
+  input.addEventListener('focus', () => {
+    if (input.value.trim().length >= 3 && dropdown.children.length > 0) { openDropdown(input, dropdown); }
+  });
+
+  // Store reference to itemsData so fetchSuggestions can update it
+  input._acData = { itemsData, selIdx, onSelect };
+}
+
+function fetchSuggestions(query, input, dropdown, existingData) {
+  if (!autocompleteService) return;
+  autocompleteService.getPlacePredictions({
+    input: query,
+    componentRestrictions: { country: 'au' },
+    types: ['address'],
+    sessionToken: sessionToken,
+  }, (predictions, status) => {
+    const data = input._acData;
+    data.itemsData.length = 0;
+    data.selIdx = -1;
+
+    if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions?.length) {
+      closeDropdown(input, dropdown);
+      return;
+    }
+
+    predictions.forEach(p => data.itemsData.push(p));
+    renderDropdown(predictions, input, dropdown, data.onSelect, data.itemsData);
+    openDropdown(input, dropdown);
+  });
+}
+
+function renderDropdown(predictions, input, dropdown, onSelect, itemsData) {
+  dropdown.innerHTML = predictions.map((p, i) => {
+    const main = p.structured_formatting?.main_text || p.description.split(',')[0];
+    const sub = p.structured_formatting?.secondary_text || p.description.split(',').slice(1).join(',').trim();
+    return `<div class="addr-item" data-idx="${i}"><span class="addr-item-icon">📍</span><div class="addr-item-text"><div class="addr-item-main">${main}</div><div class="addr-item-sub">${sub}</div></div></div>`;
+  }).join('') + '<div class="addr-powered">Powered by Google</div>';
+
+  dropdown.querySelectorAll('.addr-item').forEach((el, i) => {
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // prevent input blur
+      selectPlace(itemsData[i], input, dropdown, onSelect);
+    });
+    el.addEventListener('mouseenter', () => {
+      dropdown.querySelectorAll('.addr-item').forEach(x => x.classList.remove('active'));
+      el.classList.add('active');
+      input._acData.selIdx = i;
+    });
+  });
+}
+
+function selectPlace(prediction, input, dropdown, onSelect) {
+  if (!prediction) return;
+  // Get place details to build a clean formatted address
+  placesService.getDetails({
+    placeId: prediction.place_id,
+    fields: ['address_components', 'formatted_address'],
+    sessionToken: sessionToken,
+  }, (place, status) => {
+    // Refresh session token after a details request (billing best practice)
+    sessionToken = new google.maps.places.AutocompleteSessionToken();
+
+    if (status === google.maps.places.PlacesServiceStatus.OK && place?.address_components) {
+      const formatted = formatAustralianAddress(place.address_components);
+      onSelect(formatted);
+    } else {
+      // Fallback: use prediction description, clean it up
+      let desc = prediction.description.replace(', Australia', '');
+      onSelect(desc);
+    }
+    closeDropdown(input, dropdown);
+  });
+}
+
+// Format address components into "Street, Suburb, STATE Postcode"
+function formatAustralianAddress(components) {
+  let streetNum = '', route = '', suburb = '', state = '', postcode = '';
+  for (const c of components) {
+    const types = c.types;
+    if (types.includes('street_number')) streetNum = c.long_name;
+    else if (types.includes('route')) route = c.long_name;
+    else if (types.includes('locality')) suburb = c.long_name;
+    else if (types.includes('administrative_area_level_1')) state = c.short_name;
+    else if (types.includes('postal_code')) postcode = c.long_name;
+  }
+  const street = [streetNum, route].filter(Boolean).join(' ');
+  return [street, suburb, [state, postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+}
+
+function openDropdown(input, dropdown) {
+  dropdown.classList.add('open');
+  input.classList.add('dropdown-open');
+}
+
+function closeDropdown(input, dropdown) {
+  dropdown.classList.remove('open');
+  input.classList.remove('dropdown-open');
+  if (input._acData) input._acData.selIdx = -1;
+}
+
+function highlightItem(items, idx) {
+  items.forEach(el => el.classList.remove('active'));
+  if (idx >= 0 && idx < items.length) { items[idx].classList.add('active'); items[idx].scrollIntoView({ block:'nearest' }); }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.addr-wrap')) {
+    document.querySelectorAll('.addr-dropdown.open').forEach(d => {
+      d.classList.remove('open');
+      const inp = d.parentElement.querySelector('input');
+      if (inp) inp.classList.remove('dropdown-open');
+    });
+  }
+});
 
 /* ─── Init ─── */
 loadHistory();
+loadGoogleMaps();
 </script>
 </body>
 </html>

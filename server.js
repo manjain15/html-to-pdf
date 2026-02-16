@@ -1202,6 +1202,10 @@ function mapScraperToReport(input, suburbData, propertyData, comparablesData, pl
   };
 }
 
+// Serve Google API key to frontend for address autocomplete
+app.get("/api/config", (req, res) => {
+  res.json({ googleApiKey: GOOGLE_API_KEY || "" });
+});
 
 // ── AUTO-REPORT ENDPOINT ──
 app.post("/auto-report", async (req, res) => {
@@ -1265,7 +1269,10 @@ app.post("/auto-report", async (req, res) => {
     let suburbIsFresh = false;
     let cachedSuburbData = null;
 
-    if (existingSuburbData) {
+    if (input.forceSuburbRefresh) {
+      console.log(`   🔄 Force suburb refresh requested — ignoring cache`);
+      if (existingSuburbData) await dropboxDelete(suburbDataPath);
+    } else if (existingSuburbData) {
       const modDate = new Date(existingSuburbData.server_modified || existingSuburbData.client_modified);
       const ageMs = Date.now() - modDate.getTime();
       const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
