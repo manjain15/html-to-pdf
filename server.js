@@ -1280,50 +1280,44 @@ app.post("/auto-report", async (req, res) => {
     }
 
     // ════════════════════════════════════════════
-    // STEP 3: Parallel scraping
+    // STEP 3: Sequential scraping (with AI fallback)
     // ════════════════════════════════════════════
-    console.log(`   Scraping: suburb=${suburb}, state=${state}, postcode=${postcode}`);
-
-    const scraperPromises = [];
+    // Calls are sequential because the scraper runs Playwright which is
+    // memory-heavy — parallel requests can cause timeouts on hobby tier.
+    const useAI = !!input.forceAIFallback;
+    console.log(`   Scraping: suburb=${suburb}, state=${state}, postcode=${postcode}${useAI ? " [FORCED AI]" : ""}`);
 
     // 1. Suburb data — skip entirely if we have cached data
+    let suburbScrapeResult;
     if (!suburbIsFresh) {
       const needSuburbText = !input.cityParagraphs || !input.futureProspectsParagraphs;
       if (needSuburbText) {
-        scraperPromises.push(
-          callScraper("/api/suburb", { suburb, state, postcode })
-            .then(r => { console.log(`   ✅ Suburb data: ${r.success ? "OK" : "FAILED"}`); return r; })
-        );
+        suburbScrapeResult = await callScraper("/api/suburb", { suburb, state, postcode });
+        console.log(`   ✅ Suburb data: ${suburbScrapeResult.success ? "OK" : "FAILED"} [${suburbScrapeResult.source || "scraper"}]`);
       } else {
-        scraperPromises.push(Promise.resolve({ success: true, data: {} }));
+        suburbScrapeResult = { success: true, data: {}, source: "skipped" };
       }
     } else {
       console.log(`   ⏩ Skipping suburb scrape entirely (using cached data)`);
-      scraperPromises.push(Promise.resolve({ success: true, data: cachedSuburbData }));
+      suburbScrapeResult = { success: true, data: cachedSuburbData, source: "cache" };
     }
 
     // 2. Property data (CoreLogic) — skip if key fields provided
+    let propertyResult;
     const needProperty = !input.bedrooms || !input.bathrooms;
     if (needProperty) {
-      scraperPromises.push(
-        callScraper("/api/property", { address: input.address })
-          .then(r => { console.log(`   ✅ Property data: ${r.success ? "OK" : "FAILED"}`); return r; })
-      );
+      propertyResult = await callScraper("/api/property", { address: input.address });
+      console.log(`   ✅ Property data: ${propertyResult.success ? "OK" : "FAILED"} [${propertyResult.source || "scraper"}]`);
     } else {
-      scraperPromises.push(Promise.resolve({ success: true, data: {} }));
+      propertyResult = { success: true, data: {}, source: "skipped" };
     }
 
     // 3. Comparables (Domain.com.au) — only if addresses provided
+    let comparablesResult = null;
     if (input.comparableAddresses?.length) {
-      scraperPromises.push(
-        callScraper("/api/domain-comparables", { addresses: input.comparableAddresses })
-          .then(r => { console.log(`   ✅ Comparables (Domain): ${r.success ? "OK" : "FAILED"}`); return r; })
-      );
-    } else {
-      scraperPromises.push(Promise.resolve(null));
+      comparablesResult = await callScraper("/api/domain-comparables", { addresses: input.comparableAddresses });
+      console.log(`   ✅ Comparables (Domain): ${comparablesResult.success ? "OK" : "FAILED"} [${comparablesResult.source || "scraper"}]`);
     }
-
-    const [suburbScrapeResult, propertyResult, comparablesResult] = await Promise.all(scraperPromises);
 
     if (suburbScrapeResult && !suburbScrapeResult.success) errors.push({ source: "suburb", error: suburbScrapeResult.error });
     if (propertyResult && !propertyResult.success) errors.push({ source: "property", error: propertyResult.error });
